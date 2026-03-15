@@ -504,7 +504,7 @@ function App() {
         const index = prev.findIndex(course => course.id === editingCourse.id);
         if (index >= 0) {
             const updatedList = [...prev];
-            updated)updatedList[index] = editingCourse;
+            updatedList[index] = editingCourse;
             return updatedList;
         }
         return [...prev, editingCourse];
@@ -768,9 +768,9 @@ function App() {
     return g ? g - getStrokesForHole(pId, hNum) : null;
   };
 
-  const calculateIndependentMatchResult = (m: IndependentMatch) => {
-    const holes = Array.from({ length: 18 }, (_, i) => i + 1);
-    const mManual = indManualPresses[m.id] || { overall: [], front: [], back: [] };
+  const calculateIndependentMatchResult = (match: IndependentMatch) => {
+    const allHoles = Array.from({ length: 18 }, (_, i) => i + 1);
+    const matchManualPresses = indManualPresses[match.id] || { overall: [], front: [], back: [] };
     const calculateSide = (hList: number[], sideMain: number, sidePress: number, manualHoles: number[], triggerOverride?: '2-down' | 'closed-out') => {
         let score = 0;
         let presses: { startHole: number; score: number; payout: number; display: string; holeByHole?: any[] }[] = [];
@@ -778,9 +778,9 @@ function App() {
         (manualHoles || []).forEach(h => presses.push({ startHole: h, score: 0, payout: 0, display: '', holeByHole: [] }));
         const trigger = triggerOverride || settings.autoPressTrigger;
         hList.forEach((h, i) => {
-            const g1 = scores[m.p1Id]?.[h], g2 = scores[m.p2Id]?.[h];
+            const g1 = scores[match.player1Id]?.[h], g2 = scores[match.player2Id]?.[h];
             if (g1 === undefined || g2 === undefined) return;
-            const hs = getIndependentStrokesForHole(m.p1Id, m.p2Id, h, m);
+            const hs = getIndependentStrokesForHole(match.player1Id, match.player2Id, h, match);
             const n1 = g1 - (hs > 0 ? hs : 0);
             const n2 = g2 - (hs < 0 ? Math.abs(hs) : 0);
             const diff = n1 - n2;
@@ -806,7 +806,7 @@ function App() {
             const isClosed = Math.abs(lastPressScore) > holesLeft;
             const isTwoDown = Math.abs(lastPressScore) >= 2;
             const autoTriggered = trigger === 'closed-out' ? isClosed : isTwoDown;
-            if (m.useAutoPress && autoTriggered && holesLeft > 0) {
+            if (match.useAutoPress && autoTriggered && holesLeft > 0) {
                 if (trigger === '2-down' || isClosed) {
                     if (!presses.some(p => p.startHole === h + 1)) {
                         presses.push({ startHole: h + 1, score: 0, payout: 0, display: '' });
@@ -814,23 +814,23 @@ function App() {
                 }
             }
         });
-        const p1N = activePlayers.find(pl => pl.id === m.p1Id)?.name?.split(' ')[0] || 'P1';
-        const p2N = activePlayers.find(pl => pl.id === m.p2Id)?.name?.split(' ')[0] || 'P2';
+        const p1N = activePlayers.find(pl => pl.id === match.player1Id)?.name?.split(' ')[0] || 'P1';
+        const p2N = activePlayers.find(pl => pl.id === match.player2Id)?.name?.split(' ')[0] || 'P2';
         presses = presses.map(p => ({ ...p, payout: p.score > 0 ? sidePress : p.score < 0 ? -sidePress : 0, 
             display: p.score === 0 ? "AS" : `${p.score > 0 ? p1N : p2N} ${Math.abs(p.score)} UP` }));
         return { score, payout: (score > 0 ? sideMain : score < 0 ? -sideMain : 0) + presses.reduce((sum, p) => sum + p.payout, 0), presses, holeByHole };
     };
-    const p1N = activePlayers.find(pl => pl.id === m.p1Id)?.name?.split(' ')[0] || 'P1';
-    const p2N = activePlayers.find(pl => pl.id === m.p2Id)?.name?.split(' ')[0] || 'P2';
+    const p1N = activePlayers.find(pl => pl.id === match.player1Id)?.name?.split(' ')[0] || 'P1';
+    const p2N = activePlayers.find(pl => pl.id === match.player2Id)?.name?.split(' ')[0] || 'P2';
     const formatUP = (score: number) => score === 0 ? "AS" : `${score > 0 ? p1N : p2N} ${Math.abs(score)} UP`;
-    const trigger = m.autoPressTrigger || settings.autoPressTrigger;
-    if (m.type === '18-hole') {
-        const resO = calculateSide(holes, m.stake, m.pressStake || 5, mManual.overall, trigger);
+    const trigger = match.autoPressTrigger || settings.autoPressTrigger;
+    if (match.type === '18-hole') {
+        const resO = calculateSide(allHoles, match.stake, match.pressStake || 5, matchManualPresses.overall, trigger);
         return { payout: resO.payout, overall: resO, display: formatUP(resO.score), pressDetail: resO.presses.map(p => ({...p, label: 'Overall'})) };
     } else {
-        const front = calculateSide(holes.slice(0, 9), m.stake9 || 5, m.pressStake9 || 2, mManual.front, trigger);
-        const back = calculateSide(holes.slice(9, 18), m.stake9 || 5, m.pressStake9 || 2, mManual.back, trigger);
-        const overall = calculateSide(holes, m.stake18 || 10, m.pressStake18 || 5, mManual.overall, trigger);
+        const front = calculateSide(allHoles.slice(0, 9), match.stake9 || 5, match.pressStake9 || 2, matchManualPresses.front, trigger);
+        const back = calculateSide(allHoles.slice(9, 18), match.stake9 || 5, match.pressStake9 || 2, matchManualPresses.back, trigger);
+        const overall = calculateSide(allHoles, match.stake18 || 10, match.pressStake18 || 5, matchManualPresses.overall, trigger);
         return { payout: front.payout + back.payout + overall.payout, front, back, overall, display: `Front 9: ${formatUP(front.score)} | Back 9: ${formatUP(back.score)} | Full 18: ${formatUP(overall.score)}`, 
             pressDetail: [...front.presses.map(p => ({...p, label: 'Front 9'})), ...back.presses.map(p => ({...p, label: 'Back 9'})), ...overall.presses.map(p => ({...p, label: 'Full 18'}))] };
     }
@@ -1406,7 +1406,7 @@ function App() {
                                                     onKeyDown={e => e.key === 'Enter' && finalizeDecimalEntry(p.id, true)}
                                                 />
                                             ) : (
-                                                <strong>{getStrokesPerSix(p)}</strong>
+                                                <strong>{getStrokesPerSixHoles(p)}</strong>
                                             )}
                                         </div>
                                     )}
@@ -1478,34 +1478,34 @@ function App() {
                         </div>
                     ) : (
                         [{l: "First Six"}, {l: "Second Six"}, {l: "Third Six"}].map((seg, i) => (   
-                            <div key={i} className="seg-card"><h4>{seg.l}</h4><div className="team-row"><span>{gameMode === 'wheel' ? 'Wheel:' : 'Team 1:'}</span><div className="team-selects-wrapper"><select value={segments[i].team1[0]} onChange={e => handleTeamSelection(i, e.target.value, segments[i].team1[1] || '')}><option value="">P1</option>{activePlayers.map(p => <option key={p.id} value={p.id} disabled={gameMode === 'wheel' && getPlayerWheelCount(p.id, i) >= 2}>{p.name}</option>)}</select><select value={segments[i].team1[1]} onChange={e => handleTeamSelection(i, segments[i].team1[0] || '', e.target.value)}><option value="">P2</option>{activePlayers.map(p => <option key={p.id} value={p.id} disabled={p.id === (segments[i].team1[0] || '') || (gameMode === 'wheel' && (getPlayerWheelCount(p.id, i) >= 2 || isPairDuplicate(segments[i].team1[0] || '', p.id, i)))}>{p.name}</option>)}</select></div></div>{segments[i].team2.length > 0 && <div className="team-row opponent-row"><span>{gameMode === 'wheel' ? 'Ops:' : 'Team 2:'}</span><div className="auto-pair-inline">{getTeamNamesByIds(segments[i].team2, true)}</div></div>}</div>
+                            <div key={i} className="seg-card"><h4>{seg.l}</h4><div className="team-row"><span>{gameMode === 'wheel' ? 'Wheel:' : 'Team 1:'}</span><div className="team-selects-wrapper"><select value={segments[i].team1[0]} onChange={e => handleTeamSelection(i, e.target.value, segments[i].team1[1] || '')}><option value="">P1</option>{activePlayers.map(p => <option key={p.id} value={p.id} disabled={gameMode === 'wheel' && getPlayerWheelCount(p.id, i) >= 2}>{p.name}</option>)}</select><select value={segments[i].team1[1]} onChange={e => handleTeamSelection(i, segments[i].team1[0] || '', e.target.value)}><option value="">P2</option>{activePlayers.map(p => <option key={p.id} value={p.id} disabled={p.id === (segments[i].team1[0] || '') || (gameMode === 'wheel' && (getPlayerWheelCount(p.id, i) >= 2 || isPairingDuplicate(segments[i].team1[0] || '', p.id, i)))}>{p.name}</option>)}</select></div></div>{segments[i].team2.length > 0 && <div className="team-row opponent-row"><span>{gameMode === 'wheel' ? 'Ops:' : 'Team 2:'}</span><div className="auto-pair-inline">{getTeamNamesByIds(segments[i].team2, true)}</div></div>}</div>
                         ))
                     )}
                 </div>
             )}
             <div className="card independent-matches-card"><div className="collapsible-header" onClick={() => toggleSection('independent')}><h3>INDEPENDENT MATCHES</h3>{visibleSections.independent ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div> 
-                {visibleSections.independent && <div className="independent-matches-grid">{independentMatches.map(m => (
-                            <div key={m.id} className="independent-match-row">
+                {visibleSections.independent && <div className="independent-matches-grid">{independentMatches.map(match => (
+                            <div key={match.id} className="independent-match-row">
                                 <div className="im-header-row">
                                     <div className="im-pair">
-                                        <select value={m.p1Id} onChange={e => updateIndependentMatch(m.id, 'p1Id', e.target.value)}>{activePlayers.map(p => <option key={p.id} value={p.id}>{p.name || 'P' + p.id}</option>)}</select>
+                                        <select value={match.player1Id} onChange={e => updateIndependentMatch(match.id, 'player1Id', e.target.value)}>{activePlayers.map(p => <option key={p.id} value={p.id}>{p.name || 'P' + p.id}</option>)}</select>
                                         <span>vs</span>
-                                        <select value={m.p2Id} onChange={e => updateIndependentMatch(m.id, 'p2Id', e.target.value)}>{activePlayers.map(p => <option key={p.id} value={p.id}>{p.name || 'P' + p.id}</option>)}</select>
+                                        <select value={match.player2Id} onChange={e => updateIndependentMatch(match.id, 'player2Id', e.target.value)}>{activePlayers.map(p => <option key={p.id} value={p.id}>{p.name || 'P' + p.id}</option>)}</select>
                                     </div>
                                 </div>
                                 
                                 <div className="im-stroke-adjustment-row">
                                     <div className="im-calc-strokes">
                                         {(() => {
-                                            const p1 = players.find(p => p.id === m.p1Id);
-                                            const p2 = players.find(p => p.id === m.p2Id);
+                                            const p1 = players.find(p => p.id === match.player1Id);
+                                            const p2 = players.find(p => p.id === match.player2Id);
                                             if (!p1 || !p2) return <span>...</span>;
                                             const diff = p1.courseHandicap - p2.courseHandicap;
                                             
                                             // Higher CH receives strokes. 
                                             const recipient = diff >= 0 ? p1.name.split(' ')[0] : p2.name.split(' ')[0];
                                             
-                                            if (diff === 0 && m.manualStrokes === undefined) return <span>Even match</span>;
+                                            if (diff === 0 && match.manualStrokes === undefined) return <span>Even match</span>;
 
                                             return (
                                                 <div className="im-stroke-editor">
@@ -1514,27 +1514,27 @@ function App() {
                                                         type="text" 
                                                         inputMode="decimal"
                                                         className="im-stroke-input-compact" 
-                                                        value={imStrokeInputs[m.id] !== undefined ? imStrokeInputs[m.id] : (m.manualStrokes ?? Math.abs(diff)).toString()} 
-                                                        onChange={e => handleImStrokeChange(m.id, e.target.value)}
+                                                        value={imStrokeInputs[match.id] !== undefined ? imStrokeInputs[match.id] : (match.manualStrokes ?? Math.abs(diff)).toString()} 
+                                                        onChange={e => handleImStrokeChange(match.id, e.target.value)}
                                                         onBlur={() => {
                                                             // Cleanup temporary strings on blur
-                                                            const val = imStrokeInputs[m.id];
+                                                            const val = imStrokeInputs[match.id];
                                                             if (val === '' || val === '-' || val === '.') {
                                                                 setImStrokeInputs(prev => {
                                                                     const next = { ...prev };
-                                                                    delete next[m.id];
+                                                                    delete next[match.id];
                                                                     return next;
                                                                 });
                                                             }
                                                         }}
                                                     />
                                                     <span>strokes</span>
-                                                    {m.manualStrokes !== undefined && (
+                                                    {match.manualStrokes !== undefined && (
                                                         <button className="reset-strokes-btn sm" onClick={() => {
-                                                            updateIndependentMatch(m.id, 'manualStrokes', undefined);
+                                                            updateIndependentMatch(match.id, 'manualStrokes', undefined);
                                                             setImStrokeInputs(prev => {
                                                                 const next = { ...prev };
-                                                                delete next[m.id];
+                                                                delete next[match.id];
                                                                 return next;
                                                             });
                                                         }} title="Reset to calculated">
@@ -1549,33 +1549,33 @@ function App() {
 
                                 <div className="im-settings">
                                     <div className="im-type-select-row">
-                                        <select value={m.type} onChange={e => updateIndependentMatch(m.id, 'type', e.target.value)}>
+                                        <select value={match.type} onChange={e => updateIndependentMatch(match.id, 'type', e.target.value)}>
                                             <option value="18-hole">18-Hole Bet</option>
                                             <option value="nassau">Nassau Bet</option>
                                         </select>
                                     </div>
-                                    {m.type === '18-hole' ? (
+                                    {match.type === '18-hole' ? (
                                         <div className="im-stake-column">
-                                            <div className="im-stake-input"><span>Main $</span><input type="number" value={m.stake || ''} placeholder="0" onChange={e => setIndependentMatches(independentMatches.map(im => im.id === m.id ? {...im, stake: e.target.value === '' ? 0 : (parseInt(e.target.value) || 0)} : im))} /></div>
-                                            <div className="im-stake-input"><span>Press $</span><input type="number" value={m.pressStake || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'pressStake', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                            <div className="im-stake-input"><span>Main $</span><input type="number" value={match.stake || ''} placeholder="0" onChange={e => setIndependentMatches(independentMatches.map(im => im.id === match.id ? {...im, stake: e.target.value === '' ? 0 : (parseInt(e.target.value) || 0)} : im))} /></div>
+                                            <div className="im-stake-input"><span>Press $</span><input type="number" value={match.pressStake || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'pressStake', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
                                         </div>
                                     ) : (
                                         <div className="nassau-stakes-group-vertical">
                                             <div className="im-stake-row">
-                                                <div className="im-stake-input"><span>Front $</span><input type="number" value={m.stake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'stake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
-                                                <div className="im-stake-input"><span>Press-Front $</span><input type="number" value={m.pressStake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'pressStake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                                <div className="im-stake-input"><span>Front $</span><input type="number" value={match.stake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'stake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                                <div className="im-stake-input"><span>Press-Front $</span><input type="number" value={match.pressStake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'pressStake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
                                             </div>
                                             <div className="im-stake-row">
-                                                <div className="im-stake-input"><span>Back $</span><input type="number" value={m.stake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'stake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
-                                                <div className="im-stake-input"><span>Press-Back $</span><input type="number" value={m.pressStake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'pressStake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                                <div className="im-stake-input"><span>Back $</span><input type="number" value={match.stake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'stake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                                <div className="im-stake-input"><span>Press-Back $</span><input type="number" value={match.pressStake9 || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'pressStake9', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
                                             </div>
                                             <div className="im-stake-row">
-                                                <div className="im-stake-input"><span>Overall $</span><input type="number" value={m.stake18 || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'stake18', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
-                                                <div className="im-stake-input"><span>Press-Overall $</span><input type="number" value={m.pressStake18 || ''} placeholder="0" onChange={e => updateIndependentMatch(m.id, 'pressStake18', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                                <div className="im-stake-input"><span>Overall $</span><input type="number" value={match.stake18 || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'stake18', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
+                                                <div className="im-stake-input"><span>Press-Overall $</span><input type="number" value={match.pressStake18 || ''} placeholder="0" onChange={e => updateIndependentMatch(match.id, 'pressStake18', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))} /></div>
                                             </div>
                                         </div>
                                     )}
-                                    <button className="icon-btn remove-im" onClick={() => deleteIndependentMatch(m.id)}><Trash2 size={14}/></button>
+                                    <button className="icon-btn remove-im" onClick={() => deleteIndependentMatch(match.id)}><Trash2 size={14}/></button>
                                 </div>
                             </div>
                         ))}<button className="add-btn" onClick={addIndependentMatch} disabled={activePlayers.filter(p => p.name).length < 2}><Plus size={14}/> Add Match</button></div>}</div>
@@ -1586,7 +1586,7 @@ function App() {
           <div className="scorecard-view" style={{ '--player-count': scorecardPlayers.length || 1 } as any}>
             <div className="scorecard-header-fixed"><div className="h-cell">Hole</div>{scorecardPlayers.map(p => {
                 const displayStrokes = (gameMode === 'sixes' || gameMode === 'wheel') 
-                    ? getStrokesPerSix(p) 
+                    ? getStrokesPerSixHoles(p) 
                     : (settings.useManualStrokes ? p.manualRelativeStrokes : p.courseHandicap - baselineCH);
                 return (
                     <div key={p.id} className="p-cell">
@@ -1642,8 +1642,8 @@ function App() {
                         )}
                  </div>
                  ))}
-                 <div className="score-row total-row-sub"><div className="h-info"><strong>F9</strong></div>{scorecardPlayers.map(p => <div key={p.id} className="input-cell total-cell"><strong>{getPlayerNineTotal(p.id, [1,2,3,4,5,6,7,8,9])}</strong></div>)}{gameMode === 'baseball' && <div className="bb-pts-cell total"><strong>{(() => { let sum=0; for(let h=1;h<=9;h++) calculateBaseballPoints(h).forEach(p=>sum+=p); return sum; })()}</strong></div>}</div>
-                 <div className="score-row total-row-sub"><div className="h-info"><strong>B9</strong></div>{scorecardPlayers.map(p => <div key={p.id} className="input-cell total-cell"><strong>{getPlayerNineTotal(p.id, [10,11,12,13,14,15,16,17,18])}</strong></div>)}{gameMode === 'baseball' && <div className="bb-pts-cell total"><strong>{(() => { let sum=0; for(let h=10;h<=18;h++) { let pts = calculateBaseballPoints(h); if (settings.useBaseballDoubleBackNine) pts = pts.map(p => p * 2); pts.forEach(p=>sum+=p); } return sum; })()}</strong></div>}</div>
+                 <div className="score-row total-row-sub"><div className="h-info"><strong>F9</strong></div>{scorecardPlayers.map(p => <div key={p.id} className="input-cell total-cell"><strong>{getPlayerHoleListTotal(p.id, [1,2,3,4,5,6,7,8,9])}</strong></div>)}{gameMode === 'baseball' && <div className="bb-pts-cell total"><strong>{(() => { let sum=0; for(let h=1;h<=9;h++) calculateBaseballPoints(h).forEach(p=>sum+=p); return sum; })()}</strong></div>}</div>
+                 <div className="score-row total-row-sub"><div className="h-info"><strong>B9</strong></div>{scorecardPlayers.map(p => <div key={p.id} className="input-cell total-cell"><strong>{getPlayerHoleListTotal(p.id, [10,11,12,13,14,15,16,17,18])}</strong></div>)}{gameMode === 'baseball' && <div className="bb-pts-cell total"><strong>{(() => { let sum=0; for(let h=10;h<=18;h++) { let pts = calculateBaseballPoints(h); if (settings.useBaseballDoubleBackNine) pts = pts.map(p => p * 2); pts.forEach(p=>sum+=p); } return sum; })()}</strong></div>}</div>
                  <div className="score-row total-row"><div className="h-info"><strong>TOT</strong></div>{scorecardPlayers.map(p => <div key={p.id} className="input-cell total-cell"><strong>{getPlayerScoreTotal(p.id)}</strong></div>)}{gameMode === 'baseball' && <div className="bb-pts-cell total"><strong>{(() => { let sum=0; for(let h=1;h<=18;h++) { let pts = calculateBaseballPoints(h); if (h >= 10 && settings.useBaseballDoubleBackNine) pts = pts.map(p => p * 2); pts.forEach(p=>sum+=p); } return sum; })()}</strong></div>}</div>
                  <div className="score-row net-total-row"><div className="h-info"><strong>NET</strong></div>{scorecardPlayers.map(p => {
                      const gross = getPlayerScoreTotal(p.id);
@@ -1861,23 +1861,23 @@ function App() {
                 })
             ) : null}
 
-            {independentMatches.length > 0 && <div className="card independent-results-card"><h3>INDEPENDENT MATCHES</h3>{independentMatches.map(m => {
-                        const res = calculateIndependentMatchResult(m);
-                        const mPrs = indManualPresses[m.id] || { overall: [], front: [], back: [] };
+            {independentMatches.length > 0 && <div className="card independent-results-card"><h3>INDEPENDENT MATCHES</h3>{independentMatches.map(match => {
+                        const res = calculateIndependentMatchResult(match);
+                        const mPrs = indManualPresses[match.id] || { overall: [], front: [], back: [] };
                         return (
-                            <div key={m.id} className="im-result-group">
-                                <div className="im-res-main" onClick={() => toggleMatchDetail(m.id)}>
-                                    <span>{getTeamNamesByIds([m.p1Id])} vs {getTeamNamesByIds([m.p2Id])}</span>
+                            <div key={match.id} className="im-result-group">
+                                <div className="im-res-main" onClick={() => toggleMatchDetail(match.id)}>
+                                    <span>{getTeamNamesByIds([match.player1Id])} vs {getTeamNamesByIds([match.player2Id])}</span>
                                     <div className="im-res-summary-group">
                                         <strong>{res.payout === 0 ? "AS" : `${res.payout > 0 ? '+' : ''}$${res.payout}`}</strong>
-                                        {showMatchDetails[m.id] ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                                        {showMatchDetails[match.id] ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                                     </div>
                                 </div>
-                                {showMatchDetails[m.id] && (
+                                {showMatchDetails[match.id] && (
                                     <div className="im-audit-container">
-                                        {m.type === '18-hole' ? (
+                                        {match.type === '18-hole' ? (
                                             <div className="audit-table">
-                                                <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([m.p1Id])}</span><span>{getTeamNamesByIds([m.p2Id])}</span><span>+/-</span></div>
+                                                <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([match.player1Id])}</span><span>{getTeamNamesByIds([match.player2Id])}</span><span>+/-</span></div>
                                                 {res.overall.holeByHole.map((h: any) => (
                                                     <div key={h.hole} className="audit-row">
                                                         <span>{h.hole}</span>
@@ -1892,7 +1892,7 @@ function App() {
                                                 <div className="audit-table-group">
                                                     <div className="audit-label">Front 9</div>
                                                     <div className="audit-table">
-                                                        <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([m.p1Id])}</span><span>{getTeamNamesByIds([m.p2Id])}</span><span>+/-</span></div>
+                                                        <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([match.player1Id])}</span><span>{getTeamNamesByIds([match.player2Id])}</span><span>+/-</span></div>
                                                         {res.front?.holeByHole.map((h: any) => (
                                                             <div key={h.hole} className="audit-row"><span>{h.hole}</span><span>{h.p1Net}</span><span>{h.p2Net}</span><strong>{h.running === 0 ? 'AS' : h.running > 0 ? `+${h.running}` : h.running}</strong></div>
                                                         ))}
@@ -1901,7 +1901,7 @@ function App() {
                                                 <div className="audit-table-group">
                                                     <div className="audit-label">Back 9</div>
                                                     <div className="audit-table">
-                                                        <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([m.p1Id])}</span><span>{getTeamNamesByIds([m.p2Id])}</span><span>+/-</span></div>
+                                                        <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([match.player1Id])}</span><span>{getTeamNamesByIds([match.player2Id])}</span><span>+/-</span></div>
                                                         {res.back?.holeByHole.map((h: any) => (
                                                             <div key={h.hole} className="audit-row"><span>{h.hole}</span><span>{h.p1Net}</span><span>{h.p2Net}</span><strong>{h.running === 0 ? 'AS' : h.running > 0 ? `+${h.running}` : h.running}</strong></div>
                                                         ))}
@@ -1911,26 +1911,26 @@ function App() {
                                         )}
                                     </div>
                                 )}
-                                {m.type === '18-hole' ? (
-                                    <div className="im-leg-row"><span>Full 18:</span> <span className="im-leg-status">{res.display} {res.overall && res.overall.score !== 0 ? `($${m.stake})` : ''}</span></div>
+                                {match.type === '18-hole' ? (
+                                    <div className="im-leg-row"><span>Full 18:</span> <span className="im-leg-status">{res.display} {res.overall && res.overall.score !== 0 ? `($${match.stake})` : ''}</span></div>
                                 ) : (
                                     <div className="im-nassau-legs">
-                                        <div className="im-leg-row"><span>Front 9:</span> <span className="im-leg-status">{res.front ? (res.front.score === 0 ? "AS" : `${res.front.score > 0 ? getTeamNamesByIds([m.p1Id]) : getTeamNamesByIds([m.p2Id])} ${Math.abs(res.front.score)} UP ($${m.stake9 || 5})`) : ''}</span></div>
-                                        <div className="im-leg-row"><span>Back 9:</span> <span className="im-leg-status">{res.back ? (res.back.score === 0 ? "AS" : `${res.back.score > 0 ? getTeamNamesByIds([m.p1Id]) : getTeamNamesByIds([m.p2Id])} ${Math.abs(res.back.score)} UP ($${m.stake9 || 5})`) : ''}</span></div>
-                                        <div className="im-leg-row"><span>Full 18:</span> <span className="im-leg-status">{res.overall ? (res.overall.score === 0 ? "AS" : `${res.overall.score > 0 ? getTeamNamesByIds([m.p1Id]) : getTeamNamesByIds([m.p2Id])} ${Math.abs(res.overall.score)} UP ($${m.stake18 || 10})`) : ''}</span></div>
+                                        <div className="im-leg-row"><span>Front 9:</span> <span className="im-leg-status">{res.front ? (res.front.score === 0 ? "AS" : `${res.front.score > 0 ? getTeamNamesByIds([match.player1Id]) : getTeamNamesByIds([match.player2Id])} ${Math.abs(res.front.score)} UP ($${match.stake9 || 5})`) : ''}</span></div>
+                                        <div className="im-leg-row"><span>Back 9:</span> <span className="im-leg-status">{res.back ? (res.back.score === 0 ? "AS" : `${res.back.score > 0 ? getTeamNamesByIds([match.player1Id]) : getTeamNamesByIds([match.player2Id])} ${Math.abs(res.back.score)} UP ($${match.stake9 || 5})`) : ''}</span></div>
+                                        <div className="im-leg-row"><span>Full 18:</span> <span className="im-leg-status">{res.overall ? (res.overall.score === 0 ? "AS" : `${res.overall.score > 0 ? getTeamNamesByIds([match.player1Id]) : getTeamNamesByIds([match.player2Id])} ${Math.abs(res.overall.score)} UP ($${match.stake18 || 10})`) : ''}</span></div>
                                     </div>
                                 )}
-                                {!m.useAutoPress && <div className="manual-press-entry-group">
+                                {!match.useAutoPress && <div className="manual-press-entry-group">
                                     <div className="manual-press-input-row compact">
-                                        <input type="number" placeholder="H#" value={pressInputs[`ind-${m.id}`] || ''} onChange={e => setPressInputs({...pressInputs, [`ind-${m.id}`]: e.target.value})}/>
+                                        <input type="number" placeholder="H#" value={pressInputs[`ind-${match.id}`] || ''} onChange={e => setPressInputs({...pressInputs, [`ind-${match.id}`]: e.target.value})}/>
                                         <div className="compact-btn-column">
-                                            {m.type === '18-hole' ? (
-                                                <button className="add-press-btn green sm" onClick={() => addIndManualPress(m.id, 'overall')}>Press</button>
+                                            {match.type === '18-hole' ? (
+                                                <button className="add-press-btn green sm" onClick={() => addIndManualPress(match.id, 'overall')}>Press</button>
                                             ) : (
                                                 <>
-                                                    <button className="add-press-btn green sm" onClick={() => addIndManualPress(m.id, 'front')}>Front 9</button>
-                                                    <button className="add-press-btn green sm" onClick={() => addIndManualPress(m.id, 'back')}>Back 9</button>
-                                                    <button className="add-press-btn green sm" onClick={() => addIndManualPress(m.id, 'overall')}>Overall</button>
+                                                    <button className="add-press-btn green sm" onClick={() => addIndManualPress(match.id, 'front')}>Front 9</button>
+                                                    <button className="add-press-btn green sm" onClick={() => addIndManualPress(match.id, 'back')}>Back 9</button>
+                                                    <button className="add-press-btn green sm" onClick={() => addIndManualPress(match.id, 'overall')}>Overall</button>
                                                 </>
                                             )}
                                         </div>
@@ -1941,14 +1941,14 @@ function App() {
                                         {res.pressDetail.map((p, pi) => {
                                             const typeKey = (p as any).label?.toLowerCase()?.includes('front') ? 'front' : (p as any).label?.toLowerCase()?.includes('back') ? 'back' : 'overall';
                                             const isManual = mPrs[typeKey]?.includes(p.startHole);
-                                            const pressDetailId = `ind-${m.id}-p-${p.startHole}-${typeKey}`;
+                                            const pressDetailId = `ind-${match.id}-p-${p.startHole}-${typeKey}`;
                                             
                                             return (
                                                 <div key={pi} className="press-audit-group">
                                                     <div className="im-press-row clickable" onClick={() => toggleMatchDetail(pressDetailId)}>
                                                         <span>
                                                             {p.label ? `${p.label} ` : ''}Press (Hole {p.startHole})
-                                                            {isManual && <button className="delete-btn-xs" onClick={e => { e.stopPropagation(); removeManualPress('ind', m.id, p.startHole, typeKey); }}><X size={10}/></button>}
+                                                            {isManual && <button className="delete-btn-xs" onClick={e => { e.stopPropagation(); removeManualPress('ind', match.id, p.startHole, typeKey); }}><X size={10}/></button>}
                                                         </span>
                                                         <div className="im-press-status-group">
                                                             <span className="im-press-status">{p.display} (${Math.abs(p.payout)})</span>
@@ -1957,7 +1957,7 @@ function App() {
                                                     </div>
                                                     {showMatchDetails[pressDetailId] && p.holeByHole && (
                                                         <div className="audit-table press-audit">
-                                                            <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([m.p1Id])}</span><span>{getTeamNamesByIds([m.p2Id])}</span><span>+/-</span></div>
+                                                            <div className="audit-header"><span>H</span><span>{getTeamNamesByIds([match.player1Id])}</span><span>{getTeamNamesByIds([match.player2Id])}</span><span>+/-</span></div>
                                                             {p.holeByHole.map((h: any) => (
                                                                 <div key={h.hole} className="audit-row">
                                                                     <span>{h.hole}</span>
@@ -2008,10 +2008,10 @@ function App() {
                     {gameMode !== 'baseball' && <div className="setting-control-row"><div className="setting-info"><strong>Second Ball Tie-Breaker</strong><p>{gameMode === 'four-ball' ? 'Use 2nd ball on 9th and 18th holes if still tied' : 'Use 2nd ball on 6th hole if still tied'}</p></div><button className={`checkbox-btn ${settings.useSecondBallTieBreaker ? 'checked' : ''}`} onClick={() => setSettings(s => ({...s, useSecondBallTieBreaker: !s.useSecondBallTieBreaker}))}>{settings.useSecondBallTieBreaker ? <Check size={16} /> : <X size={16} />}</button></div>}
                     {gameMode !== 'baseball' && <div className="setting-control-row"><div className="setting-info"><strong>Auto-Press</strong><p>Enable automatic press bets</p></div><button className={`checkbox-btn ${settings.useAutoPress ? 'checked' : ''}`} onClick={() => setSettings(s => ({...s, useAutoPress: !s.useAutoPress}))}>{settings.useAutoPress ? <Check size={16} /> : <X size={16} />}</button></div>}
                     {gameMode !== 'baseball' && settings.useAutoPress && <div className="setting-control-row"><div className="setting-info"><strong>Auto-Press Trigger</strong><p>Start new press when main bet is {settings.autoPressTrigger === '2-down' ? '2-down' : 'closed out'}</p></div><div className="toggle-switch-container"><button className={settings.autoPressTrigger === '2-down' ? 'active' : ''} onClick={() => setSettings(s => ({...s, autoPressTrigger: '2-down'}))}>2-Down</button><button className={settings.autoPressTrigger === 'closed-out' ? 'active' : ''} onClick={() => setSettings(s => ({...s, autoPressTrigger: 'closed-out'}))}>Closed Out</button></div></div>}   
-                    {independentMatches.length > 0 && <div className="independent-match-presses-settings"><h4 className="settings-sub-header">Independent Match Auto-Press</h4>{independentMatches.map(m => (
-                        <div key={m.id} className="im-auto-press-settings-group">
-                            <div className="setting-control-row nested"><div className="setting-info"><strong>{getTeamNamesByIds([m.p1Id])} vs {getTeamNamesByIds([m.p2Id])}</strong><p>Auto-press enabled</p></div><button className={`checkbox-btn ${m.useAutoPress ? 'checked' : ''}`} onClick={() => updateIndependentMatch(m.id, 'useAutoPress', !m.useAutoPress)}>{m.useAutoPress ? <Check size={16} /> : <X size={16} />}</button></div>
-                            {m.useAutoPress && <div className="setting-control-row nested"><div className="setting-info"><p>Trigger: {m.autoPressTrigger === 'closed-out' ? 'Closed Out' : '2-Down'}</p></div><div className="toggle-switch-container"><button className={(m.autoPressTrigger || '2-down') === '2-down' ? 'active' : ''} onClick={() => updateIndependentMatch(m.id, 'autoPressTrigger', '2-down')}>2-Down</button><button className={m.autoPressTrigger === 'closed-out' ? 'active' : ''} onClick={() => updateIndependentMatch(m.id, 'autoPressTrigger', 'closed-out')}>Closed Out</button></div></div>}
+                    {independentMatches.length > 0 && <div className="independent-match-presses-settings"><h4 className="settings-sub-header">Independent Match Auto-Press</h4>{independentMatches.map(match => (
+                        <div key={match.id} className="im-auto-press-settings-group">
+                            <div className="setting-control-row nested"><div className="setting-info"><strong>{getTeamNamesByIds([match.player1Id])} vs {getTeamNamesByIds([match.player2Id])}</strong><p>Auto-press enabled</p></div><button className={`checkbox-btn ${match.useAutoPress ? 'checked' : ''}`} onClick={() => updateIndependentMatch(match.id, 'useAutoPress', !match.useAutoPress)}>{match.useAutoPress ? <Check size={16} /> : <X size={16} />}</button></div>
+                            {match.useAutoPress && <div className="setting-control-row nested"><div className="setting-info"><p>Trigger: {match.autoPressTrigger === 'closed-out' ? 'Closed Out' : '2-Down'}</p></div><div className="toggle-switch-container"><button className={(match.autoPressTrigger || '2-down') === '2-down' ? 'active' : ''} onClick={() => updateIndependentMatch(match.id, 'autoPressTrigger', '2-down')}>2-Down</button><button className={match.autoPressTrigger === 'closed-out' ? 'active' : ''} onClick={() => updateIndependentMatch(match.id, 'autoPressTrigger', 'closed-out')}>Closed Out</button></div></div>}
                         </div>
                     ))}</div>}
                 </div></div>
