@@ -1,19 +1,82 @@
+/**
+ * ROBALTER: GOLF SCORING AND MATCH TRACKING APPLICATION
+ * 
+ * A comprehensive tool for tracking golf scores, handicaps, and various betting formats
+ * including Sixes, The Wheel, Four Ball, Baseball (9-point), and Independent Matches.
+ */
+
 import { useState, useEffect } from 'react';
 import { Trophy, User, BookOpen, Settings as SettingsIcon, Wallet, Info, ListChecks, RotateCcw, UserPlus, Trash2, UserCheck, ChevronDown, ChevronUp, Check, X, Sliders, MapPin, Plus, Edit2, Save, UserMinus } from 'lucide-react';
 import './App.css';
 
-interface Tee { name: string; rating: number; slope: number; }
-interface Hole { number: number; par: number; handicap: number; }
-interface Course { id: string; name: string; holes: Hole[]; tees: Tee[]; }
-interface Player { id: string; name: string; index: number; indexInput: string; selectedTeeIndex: number; courseHandicap: number; manualRelativeStrokes: number; }
-interface Partner { name: string; index: number; indexInput: string; selectedTeeIndex: number; }
-interface Score { [playerId: string]: { [holeNumber: number]: number }; }
-interface Press { id: number; startHole: number; score: number; holeByHole?: any[]; }
-interface MatchSegment { segment: number; team1: string[]; team2: string[]; }
+// --- Types & Interfaces ---
+
+/** Represents a tee box at a golf course */
+interface Tee { 
+    name: string; 
+    rating: number; 
+    slope: number; 
+}
+
+/** Represents a single hole on a golf course */
+interface Hole { 
+    number: number; 
+    par: number; 
+    handicap: number; 
+}
+
+/** Represents a full golf course configuration */
+interface Course { 
+    id: string; 
+    name: string; 
+    holes: Hole[]; 
+    tees: Tee[]; 
+}
+
+/** Represents a player in the current round */
+interface Player { 
+    id: string; 
+    name: string; 
+    index: number; 
+    indexInput: string; 
+    selectedTeeIndex: number; 
+    courseHandicap: number; 
+    manualRelativeStrokes: number; // User-adjusted strokes when manual override is enabled
+}
+
+/** Represents a saved partner for quick loading */
+interface Partner { 
+    name: string; 
+    index: number; 
+    indexInput: string; 
+    selectedTeeIndex: number; 
+}
+
+/** Stores scores indexed by player ID and hole number */
+interface Score { 
+    [playerId: string]: { [holeNumber: number]: number }; 
+}
+
+/** Represents a "press" bet (a secondary bet started mid-match) */
+interface Press { 
+    id: number; 
+    startHole: number; 
+    score: number; 
+    holeByHole?: any[]; // Detailed breakdown for the press audit
+}
+
+/** Represents a pairing or match segment (e.g. one of the three 6-hole rotations) */
+interface MatchSegment { 
+    segment: number; 
+    team1: string[]; 
+    team2: string[]; 
+}
+
+/** Configuration for an independent head-to-head match between two players */
 interface IndependentMatch { 
     id: string; 
-    p1Id: string; 
-    p2Id: string; 
+    player1Id: string; 
+    player2Id: string; 
     type: '18-hole' | 'nassau'; 
     stake: number; 
     stake9?: number; 
@@ -23,8 +86,10 @@ interface IndependentMatch {
     pressStake18?: number;
     useAutoPress: boolean;
     autoPressTrigger?: '2-down' | 'closed-out';
-    manualStrokes?: number;
+    manualStrokes?: number; // User-defined strokes for this specific match
 }
+
+/** Tracks manual press starts for independent matches */
 interface IndependentManualPresses {
     [matchId: string]: {
         overall: number[];
@@ -33,6 +98,7 @@ interface IndependentManualPresses {
     }
 }
 
+/** Stake configuration for Four Ball (Better Ball) matches */
 interface FourBallStakes {
     type: '18-hole' | 'nassau';
     mainFront: number;
@@ -43,19 +109,23 @@ interface FourBallStakes {
     pressOverall: number;
 }
 
+/** Global settings for game logic and scoring variants */
 interface GameSettings {
-  strokeAllocation: 'divided' | 'handicap';
-  remainderLogic: 'standard' | 'alwaysHalf';
-  useSecondBallTieBreaker: boolean;
+  strokeAllocation: 'divided' | 'handicap'; // 'divided' = spread per 6 holes, 'handicap' = based on hole rank
+  remainderLogic: 'standard' | 'alwaysHalf'; // Logic for rounding fractional strokes in Sixes/Baseball
+  useSecondBallTieBreaker: boolean; // Use 2nd best team ball as tie-breaker on final holes
   useAutoPress: boolean;
   autoPressTrigger: '2-down' | 'closed-out';
-  useBaseballBirdieRule: boolean;
+  useBaseballBirdieRule: boolean; // Special 9-point sweep if winner has birdie and others have bogeys
   baseballBirdieRuleType: 'gross' | 'net';
-  useBaseballDoubleBackNine: boolean;
-  useManualStrokes: boolean;
+  useBaseballDoubleBackNine: boolean; // Option to double point values on the back 9
+  useManualStrokes: boolean; // Enables manual override sliders for strokes
 }
 
+// --- Constants & Defaults ---
+
 const DEFAULT_HOLES: Hole[] = Array.from({ length: 18 }, (_, i) => ({ number: i + 1, par: 4, handicap: i + 1 }));
+
 const MEADOW_CLUB: Course = {
   id: 'meadow-club',
   name: 'Meadow Club',
@@ -386,47 +456,56 @@ function App() {
   useEffect(() => localStorage.setItem(STORAGE_KEYS.FOUR_BALL_STAKES, JSON.stringify(fourBallStakes)), [fourBallStakes]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.BASEBALL_STAKE, baseballStake.toString()), [baseballStake]);
 
-  const activePlayers = players.filter(p => p.name || (gameMode === 'sixes' && players.indexOf(p) < 4) || (gameMode === 'four-ball' && players.indexOf(p) < 4) || (gameMode === 'baseball' && players.indexOf(p) < 3) || (gameMode === 'independent') || (gameMode === 'wheel'));
-  const scorecardPlayers = activePlayers.filter(p => p.name);
-  const calculateCH = (idx: number, tee: Tee) => Math.round(idx * (tee.slope / 113) + (tee.rating - 71));
+  const activePlayers = players.filter(player => player.name || (gameMode === 'sixes' && players.indexOf(player) < 4) || (gameMode === 'four-ball' && players.indexOf(player) < 4) || (gameMode === 'baseball' && players.indexOf(player) < 3) || (gameMode === 'independent') || (gameMode === 'wheel'));
+  const scorecardPlayers = activePlayers.filter(player => player.name);
 
+  /** Calculates the Course Handicap based on Handicap Index, Tee Slope, and Tee Rating */
+  const calculateCourseHandicap = (handicapIndex: number, tee: Tee) => 
+    Math.round(handicapIndex * (tee.slope / 113) + (tee.rating - 71));
+
+  /** Updates a specific player's data and recalculates their course handicap */
   const updatePlayer = (id: string, field: 'name' | 'index' | 'tee', value: string) => {
-    setPlayers(prev => prev.map(p => {
-      if (p.id !== id) return p;
-      const up = { ...p };
-      if (field === 'name') up.name = value;
+    setPlayers(prev => prev.map(player => {
+      if (player.id !== id) return player;
+      const updatedPlayer = { ...player };
+      if (field === 'name') updatedPlayer.name = value;
       if (field === 'index') {
-        up.indexInput = value;
-        const isPlus = value.startsWith('+');
-        const num = parseFloat(value.replace('+', '')) || 0;
-        up.index = isPlus ? -num : num;
+        updatedPlayer.indexInput = value;
+        const isPlusHandicap = value.startsWith('+');
+        const numValue = parseFloat(value.replace('+', '')) || 0;
+        // Plus handicaps are stored as negative numbers for calculation
+        updatedPlayer.index = isPlusHandicap ? -numValue : numValue;
       }
-      if (field === 'tee') up.selectedTeeIndex = parseInt(value);
-      const tee = selectedCourse.tees[up.selectedTeeIndex] || selectedCourse.tees[0];
-      up.courseHandicap = calculateCH(up.index, tee);
-      return up;
+      if (field === 'tee') updatedPlayer.selectedTeeIndex = parseInt(value);
+      
+      const selectedTee = selectedCourse.tees[updatedPlayer.selectedTeeIndex] || selectedCourse.tees[0];
+      updatedPlayer.courseHandicap = calculateCourseHandicap(updatedPlayer.index, selectedTee);
+      return updatedPlayer;
     }));
   };
 
+  /** Resets a player's data to default values */
   const clearPlayer = (id: string) => {
-    setPlayers(prev => prev.map(p => {
-      if (p.id !== id) return p;
-      return { ...p, name: '', index: 0, indexInput: '', selectedTeeIndex: 1, courseHandicap: 0 };
+    setPlayers(prev => prev.map(player => {
+      if (player.id !== id) return player;
+      return { ...player, name: '', index: 0, indexInput: '', selectedTeeIndex: 1, courseHandicap: 0 };
     }));
   };
 
+  /** Toggles the visibility of UI sections in the setup tab */
   const toggleSection = (section: keyof typeof visibleSections) => {
     setVisibleSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
+  /** Persists course changes or additions to local state and storage */
   const saveCourse = () => {
     if (!editingCourse || !editingCourse.name) return;
     setCourses(prev => {
-        const idx = prev.findIndex(c => c.id === editingCourse.id);
-        if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = editingCourse;
-            return updated;
+        const index = prev.findIndex(course => course.id === editingCourse.id);
+        if (index >= 0) {
+            const updatedList = [...prev];
+            updated)updatedList[index] = editingCourse;
+            return updatedList;
         }
         return [...prev, editingCourse];
     });
@@ -434,18 +513,31 @@ function App() {
     setEditingCourse(null);
   };
 
-  const editCourse = (c: Course) => { setEditingCourse(JSON.parse(JSON.stringify(c))); setIsCourseModalOpen(true); };
-  const startNewCourse = () => { setEditingCourse({ id: Date.now().toString(), name: '', holes: DEFAULT_HOLES.map(h => ({ ...h })), tees: [{ name: 'Default', rating: 72.0, slope: 113 }] }); setIsCourseModalOpen(true); };
+  const editCourse = (course: Course) => { 
+    setEditingCourse(JSON.parse(JSON.stringify(course))); 
+    setIsCourseModalOpen(true); 
+  };
+  
+  const startNewCourse = () => { 
+    setEditingCourse({ 
+        id: Date.now().toString(), 
+        name: '', 
+        holes: DEFAULT_HOLES.map(h => ({ ...h })), 
+        tees: [{ name: 'Default', rating: 72.0, slope: 113 }] 
+    }); 
+    setIsCourseModalOpen(true); 
+  };
 
   const deleteCourse = (id: string) => {
     if (id === 'meadow-club' || id === 'meadow-club-new' || id === 'olympic-lake') return;
-    const courseToDelete = courses.find(c => c.id === id);
-    if (courseToDelete && window.confirm(`Are you sure?`)) {
-        setCourses(prev => prev.filter(c => c.id !== id));
+    const courseToDelete = courses.find(course => course.id === id);
+    if (courseToDelete && window.confirm(`Are you sure you want to delete ${courseToDelete.name}?`)) {
+        setCourses(prev => prev.filter(course => course.id !== id));
         if (selectedCourseId === id) setSelectedCourseId(MEADOW_CLUB.id);
     }
   };
 
+  /** Handles changing the game mode and resetting team pairings/player counts */
   const handleGameModeChange = (newMode: 'sixes' | 'wheel' | 'four-ball' | 'baseball') => {
     if (newMode === gameMode) return;
     const modeLabel = newMode === 'four-ball' ? 'Four Ball' : newMode === 'sixes' ? 'Sixes' : newMode === 'baseball' ? 'Baseball' : 'The Wheel';
@@ -453,9 +545,9 @@ function App() {
     if (confirmed) {
         setGameMode(newMode);
         
-        // If switching to Baseball, clear any names from players 4 and 5
+        // If switching to Baseball, clear any names from players 4 and 5 as it is a 3-player game
         if (newMode === 'baseball') {
-            setPlayers(prev => prev.map((p, i) => i >= 3 ? { ...p, name: '', index: 0, indexInput: '', courseHandicap: 0 } : p));
+            setPlayers(prev => prev.map((player, index) => index >= 3 ? { ...player, name: '', index: 0, indexInput: '', courseHandicap: 0 } : player));
         }
 
         setSegments([
@@ -467,13 +559,14 @@ function App() {
     }
   };
 
+  /** Adds a new independent head-to-head match */
   const addIndependentMatch = () => {
-    const pWithNames = activePlayers.filter(p => p.name);
-    if (pWithNames.length < 2) return;
+    const playersWithNames = activePlayers.filter(player => player.name);
+    if (playersWithNames.length < 2) return;
     const newMatch: IndependentMatch = { 
         id: Date.now().toString(), 
-        p1Id: pWithNames[0].id, 
-        p2Id: pWithNames[1].id, 
+        player1Id: playersWithNames[0].id, 
+        player2Id: playersWithNames[1].id, 
         type: '18-hole', 
         stake: 10, 
         stake9: 5,
@@ -489,11 +582,11 @@ function App() {
   };
 
   const updateIndependentMatch = (id: string, field: keyof IndependentMatch, value: any) => {
-    setIndependentMatches(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
+    setIndependentMatches(prev => prev.map(match => match.id === id ? { ...match, [field]: value } : match));
   };
 
   const deleteIndependentMatch = (id: string) => {
-    setIndependentMatches(prev => prev.filter(m => m.id !== id));
+    setIndependentMatches(prev => prev.filter(match => match.id !== id));
     setIndManualPresses(prev => {
         const next = { ...prev };
         delete next[id];
@@ -502,32 +595,32 @@ function App() {
   };
 
   const updatePartnerIndex = (name: string, value: string) => {
-    const isPlus = value.startsWith('+');
-    const num = parseFloat(value.replace('+', '')) || 0;
-    const newIndex = isPlus ? -num : num;
-    setPartners(prev => prev.map(pt => pt.name === name ? { ...pt, indexInput: value, index: newIndex } : pt));
-    setPlayers(prev => prev.map(p => {
-      if (p.name !== name) return p;
-      const tee = selectedCourse.tees[p.selectedTeeIndex] || selectedCourse.tees[0];
-      return { ...p, indexInput: value, index: newIndex, courseHandicap: calculateCH(newIndex, tee) };
+    const isPlusHandicap = value.startsWith('+');
+    const numValue = parseFloat(value.replace('+', '')) || 0;
+    const newIndex = isPlusHandicap ? -numValue : numValue;
+    setPartners(prev => prev.map(partner => partner.name === name ? { ...partner, indexInput: value, index: newIndex } : partner));
+    setPlayers(prev => prev.map(player => {
+      if (player.name !== name) return player;
+      const selectedTee = selectedCourse.tees[player.selectedTeeIndex] || selectedCourse.tees[0];
+      return { ...player, indexInput: value, index: newIndex, courseHandicap: calculateCourseHandicap(newIndex, selectedTee) };
     }));
   };
 
-  const addPartner = (p: Player) => {
-    if (!p.name) return;
-    const newPartner: Partner = { name: p.name, index: p.index, indexInput: p.indexInput, selectedTeeIndex: p.selectedTeeIndex };
-    if (partners.some(pt => pt.name === p.name)) {
-        setPartners(prev => prev.map(pt => pt.name === p.name ? newPartner : pt));
+  const addPartner = (player: Player) => {
+    if (!player.name) return;
+    const newPartner: Partner = { name: player.name, index: player.index, indexInput: player.indexInput, selectedTeeIndex: player.selectedTeeIndex };
+    if (partners.some(partner => partner.name === player.name)) {
+        setPartners(prev => prev.map(partner => partner.name === player.name ? newPartner : partner));
     } else setPartners(prev => [...prev, newPartner]);
   };
 
-  const deletePartner = (name: string) => setPartners(prev => prev.filter(pt => pt.name !== name));
+  const deletePartner = (name: string) => setPartners(prev => prev.filter(partner => partner.name !== name));
 
-  const loadPartner = (pId: string, partner: Partner) => {
-    setPlayers(prev => prev.map(p => {
-      if (p.id !== pId) return p;
-      const teeIdx = partner.selectedTeeIndex < selectedCourse.tees.length ? partner.selectedTeeIndex : 0;
-      return { ...p, name: partner.name, index: partner.index, indexInput: partner.indexInput, selectedTeeIndex: teeIdx, courseHandicap: calculateCH(partner.index, selectedCourse.tees[teeIdx]) };
+  const loadPartner = (playerId: string, partner: Partner) => {
+    setPlayers(prev => prev.map(player => {
+      if (player.id !== playerId) return player;
+      const teeIndex = partner.selectedTeeIndex < selectedCourse.tees.length ? partner.selectedTeeIndex : 0;
+      return { ...player, name: partner.name, index: partner.index, indexInput: partner.indexInput, selectedTeeIndex: teeIndex, courseHandicap: calculateCourseHandicap(partner.index, selectedCourse.tees[teeIndex]) };
     }));
   };
 
@@ -542,67 +635,80 @@ function App() {
     }
   };
 
-  const baselineCH = activePlayers.some(p => p.name) ? Math.min(...activePlayers.filter(p => p.name).map(p => p.courseHandicap)) : 0;
+  const baselineCH = activePlayers.some(player => player.name) ? Math.min(...activePlayers.filter(player => player.name).map(player => player.courseHandicap)) : 0;
 
-  const getStrokesPerSix = (p: Player) => {
-    if (!p.name) return 0;
+  /** 
+   * Calculates how many handicap strokes a player gets in a 6-hole segment.
+   * Total relative strokes (Course Handicap - Best Player CH) are divided by 3.
+   */
+  const getStrokesPerSixHoles = (player: Player) => {
+    if (!player.name) return 0;
     
     // Manual strokes enabled AND Sixes/Wheel AND Divided allocation: use manual entry directly
     if (settings.useManualStrokes && (gameMode === 'sixes' || gameMode === 'wheel') && settings.strokeAllocation === 'divided') {
-        return p.manualRelativeStrokes;
+        return player.manualRelativeStrokes;
     }
     
-    const relativeTotal = p.courseHandicap - baselineCH;
+    const relativeTotal = player.courseHandicap - baselineCH;
     const rawPerSix = relativeTotal / 3;
-    const whole = Math.floor(rawPerSix);
-    if (settings.remainderLogic === 'standard') return (rawPerSix - whole) >= 0.5 ? whole + 0.5 : whole;
-    return (rawPerSix > whole) ? whole + 0.5 : whole;
+    const wholeStrokes = Math.floor(rawPerSix);
+    
+    // Logic for rounding fractional strokes based on settings
+    if (settings.remainderLogic === 'standard') {
+        return (rawPerSix - wholeStrokes) >= 0.5 ? wholeStrokes + 0.5 : wholeStrokes;
+    }
+    return (rawPerSix > wholeStrokes) ? wholeStrokes + 0.5 : wholeStrokes;
   };
 
-  const getStrokesForHole = (pId: string, hNum: number) => {
-    const p = activePlayers.find(pl => pl.id === pId);
-    if (!p || !p.name) return 0;
+  /** 
+   * Determines how many handicap strokes (full or half) a player gets on a specific hole.
+   * Logic varies based on game mode and allocation settings (Handicap Rank vs Divided).
+   */
+  const getStrokesForHole = (playerId: string, holeNumber: number) => {
+    const player = activePlayers.find(p => p.id === playerId);
+    if (!player || !player.name) return 0;
     
-    const useManual = settings.useManualStrokes;
-    const isDivided = settings.strokeAllocation === 'divided';
+    const useManualOverride = settings.useManualStrokes;
+    const isDividedAllocation = settings.strokeAllocation === 'divided';
     const isTeamMode = gameMode === 'sixes' || gameMode === 'wheel';
 
-    // In 'As They Fall' (handicap), always use manualRelativeStrokes if enabled
-    // In 'Spread Evenly' (divided), manualRelativeStrokes IS the strokesPerSix value
-    const relativeTotal = (useManual && (!isTeamMode || !isDivided)) 
-        ? p.manualRelativeStrokes 
-        : p.courseHandicap - baselineCH;
+    // Base total relative strokes used for allocation logic
+    const relativeTotal = (useManualOverride && (!isTeamMode || !isDividedAllocation)) 
+        ? player.manualRelativeStrokes 
+        : player.courseHandicap - baselineCH;
     
-    if (gameMode === 'four-ball' || gameMode === 'baseball' || !isDivided) {
-      const hole = selectedCourse.holes.find(h => h.number === hNum);
+    if (gameMode === 'four-ball' || gameMode === 'baseball' || !isDividedAllocation) {
+      // Option A: Standard Handicap Ranking (strokes applied to hardest holes)
+      const hole = selectedCourse.holes.find(h => h.number === holeNumber);
       if (!hole) return 0;
       
-      const absTotal = Math.abs(relativeTotal);
-      const basePerHole = Math.floor(absTotal / 18);
-      const extraStrokesCount = absTotal % 18;
+      const absoluteTotal = Math.abs(relativeTotal);
+      const baseStrokesPerHole = Math.floor(absoluteTotal / 18);
+      const remainderStrokes = absoluteTotal % 18;
       
-      let strokes = basePerHole;
-      if (hole.handicap <= Math.floor(extraStrokesCount)) {
+      let strokes = baseStrokesPerHole;
+      if (hole.handicap <= Math.floor(remainderStrokes)) {
           strokes += 1;
-      } else if (hole.handicap === Math.floor(extraStrokesCount) + 1 && (extraStrokesCount % 1 !== 0)) {
+      } else if (hole.handicap === Math.floor(remainderStrokes) + 1 && (remainderStrokes % 1 !== 0)) {
           strokes += 0.5;
       }
       
       return relativeTotal >= 0 ? strokes : -strokes;
     } else {
-      const strokesPerSix = getStrokesPerSix(p);
-      const sIdx = Math.floor((hNum - 1) / 6);
-      const sHoles = selectedCourse.holes.slice(sIdx * 6, sIdx * 6 + 6).sort((a, b) => a.handicap - b.handicap);
-      const hRank = sHoles.findIndex(h => h.number === hNum);
+      // Option B: Spread Evenly (divided per 6 holes)
+      const strokesPerSix = getStrokesPerSixHoles(player);
+      const segmentIndex = Math.floor((holeNumber - 1) / 6);
+      const segmentHoles = selectedCourse.holes.slice(segmentIndex * 6, segmentIndex * 6 + 6).sort((a, b) => a.handicap - b.handicap);
+      const holeRankInSegment = segmentHoles.findIndex(h => h.number === holeNumber);
       
-      const absS6 = Math.abs(strokesPerSix);
-      const base = Math.floor(absS6 / 6);
-      const remainder = absS6 % 6;
+      const absoluteS6 = Math.abs(strokesPerSix);
+      const baseStrokesPerHole = Math.floor(absoluteS6 / 6);
+      const remainderStrokes = absoluteS6 % 6;
       
-      let strokes = base;
-      if (hRank < Math.floor(remainder)) {
+      let strokes = baseStrokesPerHole;
+      if (holeRankInSegment < Math.floor(remainderStrokes)) {
           strokes += 1;
-      } else if (hRank === Math.floor(remainder) && remainder % 1 !== 0) {
+      } else if (holeRankInSegment === Math.floor(remainderStrokes) && remainderStrokes % 1 !== 0) {
           strokes += 0.5;
       }
       
@@ -610,46 +716,48 @@ function App() {
     }
   };
 
-  const getIndependentStrokesForHole = (p1Id: string, p2Id: string, hNum: number, match?: IndependentMatch) => {
-    const p1 = activePlayers.find(p => p.id === p1Id), p2 = activePlayers.find(p => p.id === p2Id);
-    if (!p1 || !p2) return 0;
+  /** 
+   * Calculates handicap strokes given to Player 1 relative to Player 2 for a specific hole.
+   * Positive = P1 receives strokes, Negative = P2 receives strokes.
+   */
+  const getIndependentStrokesForHole = (player1Id: string, player2Id: string, holeNumber: number, match?: IndependentMatch) => {
+    const player1 = activePlayers.find(p => p.id === player1Id);
+    const player2 = activePlayers.find(p => p.id === player2Id);
+    if (!player1 || !player2) return 0;
     
-    const p1CH = p1.courseHandicap;
-    const p2CH = p2.courseHandicap;
-    const isP1Worse = p1CH > p2CH;
-    const isEven = p1CH === p2CH;
+    const p1CH = player1.courseHandicap;
+    const p2CH = player2.courseHandicap;
+    const isP1HigherHandicap = p1CH > p2CH;
+    const isEvenCH = p1CH === p2CH;
 
-    let totalDiff = 0;
-    let manualReverse = false;
+    let totalDifference = 0;
+    let manualReverseRecipient = false;
     if (match && match.manualStrokes !== undefined) {
-        totalDiff = Math.abs(match.manualStrokes);
-        // Negative manual input indicates reversing the recipient
-        if (match.manualStrokes < 0) manualReverse = true;
+        totalDifference = Math.abs(match.manualStrokes);
+        // Negative manual input indicates reversing the recipient (higher handicap giving strokes)
+        if (match.manualStrokes < 0) manualReverseRecipient = true;
     } else {
-        totalDiff = Math.abs(p1CH - p2CH);
+        totalDifference = Math.abs(p1CH - p2CH);
     }
         
-    const hole = selectedCourse.holes.find(h => h.number === hNum);
+    const hole = selectedCourse.holes.find(h => h.number === holeNumber);
     if (!hole) return 0;
     
-    const basePerHole = Math.floor(totalDiff / 18);
-    const extraStrokesCount = totalDiff % 18;
+    const basePerHole = Math.floor(totalDifference / 18);
+    const remainderCount = totalDifference % 18;
     
     let strokes = basePerHole;
-    
-    // Allocate extra strokes (full or half) based on handicap rank
-    if (hole.handicap <= Math.floor(extraStrokesCount)) {
+    if (hole.handicap <= Math.floor(remainderCount)) {
         strokes += 1;
-    } else if (hole.handicap === Math.floor(extraStrokesCount) + 1 && (extraStrokesCount % 1 !== 0)) {
+    } else if (hole.handicap === Math.floor(remainderCount) + 1 && (remainderCount % 1 !== 0)) {
         strokes += 0.5;
     }
     
-    // Positive returns mean P1 receives, Negative means P2 receives
     let p1Receives = false;
-    if (isEven) {
+    if (isEvenCH) {
         p1Receives = !(match && match.manualStrokes && match.manualStrokes < 0);
     } else {
-        p1Receives = manualReverse ? !isP1Worse : isP1Worse;
+        p1Receives = manualReverseRecipient ? !isP1HigherHandicap : isP1HigherHandicap;
     }
     
     return p1Receives ? strokes : -strokes;
@@ -798,308 +906,405 @@ function App() {
     }
   };
 
-  const calculateSegmentFull = (sIdx: number) => {
-    const seg = segments[sIdx];
-    const holes = Array.from({ length: 6 }, (_, i) => sIdx * 6 + 1 + i);
-    const win: { [id: string]: number } = {};
-    activePlayers.forEach(p => win[p.id] = 0);
-    if (seg.team1.length < 2) return { main: 0, presses: [], winnings: win, matches: [] };
+  /** 
+   * Calculates all matches and payouts for a 6-hole segment in Sixes or The Wheel.
+   */
+  const calculateSegmentFull = (segmentIndex: number) => {
+    const segment = segments[segmentIndex];
+    const holesInSegment = Array.from({ length: 6 }, (_, i) => segmentIndex * 6 + 1 + i);
+    const segmentWinnings: { [id: string]: number } = {};
+    activePlayers.forEach(player => segmentWinnings[player.id] = 0);
+    
+    if (segment.team1.length < 2) return { main: 0, presses: [], winnings: segmentWinnings, matches: [] };
+    
     if (gameMode === 'sixes') {
-      const match = calculateWheelMatch(seg.team1, seg.team2, holes, sIdx, 0);
-      const payout = (match.main > 0 ? mainStake : match.main < 0 ? -mainStake : 0) + match.presses.reduce((sum, p) => sum + (p.score > 0 ? pressStake : p.score < 0 ? -pressStake : 0), 0);
-      activePlayers.forEach(p => { if (seg.team1.includes(p.id)) win[p.id] = payout; else if (seg.team2.includes(p.id)) win[p.id] = -payout; });
-      return { ...match, winnings: win, matches: [{ opponent: seg.team2, result: match }] };
-    } else {
-      const ops = seg.team2;
-      const opPairs = [[ops[0], ops[1]], [ops[1], ops[2]], [ops[0], ops[2]]];
-      const matches = opPairs.map((opT, mi) => ({ opponent: opT, result: calculateWheelMatch(seg.team1, opT, holes, sIdx, mi) }));
-      matches.forEach(m => {
-        const payout = (m.result.main > 0 ? mainStake : m.result.main < 0 ? -mainStake : 0) + m.result.presses.reduce((sum, p) => sum + (p.score > 0 ? pressStake : p.score < 0 ? -pressStake : 0), 0);
-        seg.team1.forEach(id => win[id] += payout);
-        m.opponent.forEach(id => win[id] -= payout);
+      const matchResults = calculateWheelMatch(segment.team1, segment.team2, holesInSegment, segmentIndex, 0);
+      const totalPayout = (matchResults.main > 0 ? mainStake : matchResults.main < 0 ? -mainStake : 0) + 
+                         matchResults.presses.reduce((sum, press) => sum + (press.score > 0 ? pressStake : press.score < 0 ? -pressStake : 0), 0);
+      
+      activePlayers.forEach(player => { 
+        if (segment.team1.includes(player.id)) segmentWinnings[player.id] = totalPayout; 
+        else if (segment.team2.includes(player.id)) segmentWinnings[player.id] = -totalPayout; 
       });
-      return { main: 0, presses: [], winnings: win, matches };
+      return { ...matchResults, winnings: segmentWinnings, matches: [{ opponent: segment.team2, result: matchResults }] };
+    } else {
+      // The Wheel: 2 vs 3. The 2-man team plays three separate matches against pairs from the 3-man pool.
+      const wheelOpponents = segment.team2;
+      const opponentPairings = [
+          [wheelOpponents[0], wheelOpponents[1]], 
+          [wheelOpponents[1], wheelOpponents[2]], 
+          [wheelOpponents[0], wheelOpponents[2]]
+      ];
+      
+      const matchResultsList = opponentPairings.map((oppTeam, matchIdx) => ({ 
+          opponent: oppTeam, 
+          result: calculateWheelMatch(segment.team1, oppTeam, holesInSegment, segmentIndex, matchIdx) 
+      }));
+      
+      matchResultsList.forEach(matchData => {
+        const payout = (matchData.result.main > 0 ? mainStake : matchData.result.main < 0 ? -mainStake : 0) + 
+                      matchData.result.presses.reduce((sum, press) => sum + (press.score > 0 ? pressStake : press.score < 0 ? -pressStake : 0), 0);
+        
+        segment.team1.forEach(id => segmentWinnings[id] += payout);
+        matchData.opponent.forEach(id => segmentWinnings[id] -= payout);
+      });
+      return { main: 0, presses: [], winnings: segmentWinnings, matches: matchResultsList };
     }
   };
 
+  /** 
+   * Calculates the results for a Four Ball (Better Ball) match.
+   * Supports Nassau (Front/Back/Overall) or single 18-hole formats.
+   */
   const calculateFourBallFull = () => {
-    const team1 = segments[0].team1;
-    const team2 = segments[0].team2;
-    const win: { [id: string]: number } = {};
-    activePlayers.forEach(p => win[p.id] = 0);
-    if (team1.length < 2 || team2.length < 2) return { winnings: win, front: null, back: null, overall: null };
+    const team1Ids = segments[0].team1;
+    const team2Ids = segments[0].team2;
+    const roundWinnings: { [id: string]: number } = {};
+    activePlayers.forEach(player => roundWinnings[player.id] = 0);
+    
+    if (team1Ids.length < 2 || team2Ids.length < 2) return { winnings: roundWinnings, front: null, back: null, overall: null };
 
-    const calculateNassauSide = (hList: number[], sideMain: number, sidePress: number, legIdx: number) => {
-        let score = 0;
+    /** Internal helper to calculate a Nassau side for Four Ball */
+    const calculateNassauSide = (holeList: number[], sideMainStake: number, sidePressStake: number, legIndex: number) => {
+        let matchScore = 0; // Team 1 vs Team 2
         let presses: Press[] = [];
-        let holeByHole: any[] = [];
-        const team1 = segments[0].team1;
-        const team2 = segments[0].team2;
-        (manualPresses[0]?.[legIdx] || []).forEach(h => presses.push({ id: Date.now() + h, startHole: h, score: 0, holeByHole: [] }));
-        hList.forEach((h, i) => {
-            const netScores = activePlayers.map(p => getNetScore(p.id, h));
-            const t1Scores = team1.map(id => netScores[activePlayers.findIndex(p => p.id === id)]);
-            const t2Scores = team2.map(id => netScores[activePlayers.findIndex(p => p.id === id)]);
+        let holeByHoleAudit: any[] = [];
+        
+        // Initialize with manual presses
+        (manualPresses[0]?.[legIndex] || []).forEach(h => presses.push({ id: Date.now() + h, startHole: h, score: 0, holeByHole: [] }));
+        
+        holeList.forEach((holeNumber, indexInList) => {
+            const playerNetScores = activePlayers.map(p => getNetScore(p.id, holeNumber));
+            const team1NetScores = team1Ids.map(id => playerNetScores[activePlayers.findIndex(p => p.id === id)]);
+            const team2NetScores = team2Ids.map(id => playerNetScores[activePlayers.findIndex(p => p.id === id)]);
             
-            if (t1Scores.some(s => s === null) || t2Scores.some(s => s === null)) return;
+            if (team1NetScores.some(score => score === null) || team2NetScores.some(score => score === null)) return;
             
-            const t1Best = Math.min(...t1Scores.filter(s => s !== null) as number[]);
-            const t2Best = Math.min(...t2Scores.filter(s => s !== null) as number[]);
+            const team1BestBall = Math.min(...team1NetScores.filter(s => s !== null) as number[]);
+            const team2BestBall = Math.min(...team2NetScores.filter(s => s !== null) as number[]);
             
             // Find which specific players provided the best net score to track their gross
-            const t1BestIdx = t1Scores.indexOf(t1Best);
-            const t2BestIdx = t2Scores.indexOf(t2Best);
-            const t1G = scores[team1[t1BestIdx]]?.[h];
-            const t2G = scores[team2[t2BestIdx]]?.[h];
+            const team1BestIdx = team1NetScores.indexOf(team1BestBall);
+            const team2BestIdx = team2NetScores.indexOf(team2BestBall);
+            const team1Gross = scores[team1Ids[team1BestIdx]]?.[holeNumber];
+            const team2Gross = scores[team2Ids[team2BestIdx]]?.[holeNumber];
 
-            const update = (curr: number) => (t1Best < t2Best ? curr + 1 : t2Best < t1Best ? curr - 1 : curr);
-            score = update(score);
-            presses = presses.map(p => {
-                if (h < p.startHole) return p;
-                const newScore = update(p.score);
-                const hbh = [...(p.holeByHole || []), { hole: h, t1Net: t1Best, t2Net: t2Best, t1Gross: t1G, t2Gross: t2G, running: newScore }];
-                return { ...p, score: newScore, holeByHole: hbh };
+            const updateScore = (current: number) => (team1BestBall < team2BestBall ? current + 1 : team2BestBall < team1BestBall ? current - 1 : current);
+            matchScore = updateScore(matchScore);
+            
+            presses = presses.map(press => {
+                if (holeNumber < press.startHole) return press;
+                const newPressScore = updateScore(press.score);
+                const pressAudit = [...(press.holeByHole || []), { hole: holeNumber, t1Net: team1BestBall, t2Net: team2BestBall, t1Gross: team1Gross, t2Gross: team2Gross, running: newPressScore }];
+                return { ...press, score: newPressScore, holeByHole: pressAudit };
             });
             
-            holeByHole.push({ 
-                hole: h, 
-                t1Net: t1Best, t2Net: t2Best, 
-                t1Gross: t1G, t2Gross: t2G, 
-                running: score 
+            holeByHoleAudit.push({ 
+                hole: holeNumber, 
+                t1Net: team1BestBall, t2Net: team2BestBall, 
+                t1Gross: team1Gross, t2Gross: team2Gross, 
+                running: matchScore 
             });
             
-            if (i === hList.length - 1 && score === 0 && t1Best === t2Best && settings.useSecondBallTieBreaker) {
-                const t1Second = Math.max(...t1Scores.filter(s => s !== null) as number[]);
-                const t2Second = Math.max(...t2Scores.filter(s => s !== null) as number[]);
-                if (t1Second < t2Second) score++; else if (t2Second < t1Second) score--;
-                if (holeByHole.length > 0) {
-                    holeByHole[holeByHole.length-1].running = score;
-                    holeByHole[holeByHole.length-1].isTieBreaker = true;
+            // Tie-breaker on the final hole of the leg if still tied
+            if (indexInList === holeList.length - 1 && matchScore === 0 && team1BestBall === team2BestBall && settings.useSecondBallTieBreaker) {
+                const team1SecondBall = Math.max(...team1NetScores.filter(s => s !== null) as number[]);
+                const team2SecondBall = Math.max(...team2NetScores.filter(s => s !== null) as number[]);
+                if (team1SecondBall < team2SecondBall) matchScore++; 
+                else if (team2SecondBall < team1SecondBall) matchScore--;
+                
+                if (holeByHoleAudit.length > 0) {
+                    holeByHoleAudit[holeByHoleAudit.length-1].running = matchScore;
+                    holeByHoleAudit[holeByHoleAudit.length-1].isTieBreaker = true;
                 }
             }
 
-            const holesLeft = hList.length - (i + 1);
-            const lastPressScore = presses.length > 0 ? presses[presses.length-1].score : score;
-            const isClosed = Math.abs(lastPressScore) > holesLeft;
+            // Auto-press logic
+            const holesRemaining = holeList.length - (indexInList + 1);
+            const lastPressScore = presses.length > 0 ? presses[presses.length - 1].score : matchScore;
+            const isClosedOut = Math.abs(lastPressScore) > holesRemaining;
             const isTwoDown = Math.abs(lastPressScore) >= 2;
-            const autoTriggered = settings.autoPressTrigger === 'closed-out' ? isClosed : isTwoDown;
+            const shouldAutoPress = settings.autoPressTrigger === 'closed-out' ? isClosedOut : isTwoDown;
 
-            if (settings.useAutoPress && autoTriggered && holesLeft > 0) {
-                if (!presses.some(p => p.startHole === h + 1)) {
-                    presses.push({ id: Date.now() + i, startHole: h + 1, score: 0, holeByHole: [] });
+            if (settings.useAutoPress && shouldAutoPress && holesRemaining > 0) {
+                if (!presses.some(p => p.startHole === holeNumber + 1)) {
+                    presses.push({ id: Date.now() + indexInList, startHole: holeNumber + 1, score: 0, holeByHole: [] });
                 }
             }
         });
-        const payout = (score > 0 ? sideMain : score < 0 ? -sideMain : 0) + presses.reduce((sum, p) => sum + (p.score > 0 ? sidePress : p.score < 0 ? -sidePress : 0), 0);
-        return { score, payout, presses, holeByHole };
+        
+        const sidePayout = (matchScore > 0 ? sideMainStake : matchScore < 0 ? -sideMainStake : 0) + 
+                          presses.reduce((sum, press) => sum + (press.score > 0 ? sidePressStake : press.score < 0 ? -sidePressStake : 0), 0);
+        
+        return { score: matchScore, payout: sidePayout, presses, holeByHole: holeByHoleAudit };
     };
 
     if (fourBallStakes.type === '18-hole') {
         const overall = calculateNassauSide(Array.from({length: 18}, (_, i) => i + 1), fourBallStakes.mainOverall, fourBallStakes.pressOverall, 2);
-        team1.forEach(id => win[id] = overall.payout);
-        team2.forEach(id => win[id] = -overall.payout);
-        return { winnings: win, front: null, back: null, overall };
+        team1Ids.forEach(id => roundWinnings[id] = overall.payout);
+        team2Ids.forEach(id => roundWinnings[id] = -overall.payout);
+        return { winnings: roundWinnings, front: null, back: null, overall };
     } else {
         const front = calculateNassauSide(Array.from({length: 9}, (_, i) => i + 1), fourBallStakes.mainFront, fourBallStakes.pressFront, 0);
         const back = calculateNassauSide(Array.from({length: 9}, (_, i) => i + 10), fourBallStakes.mainBack, fourBallStakes.pressBack, 1);
         const overall = calculateNassauSide(Array.from({length: 18}, (_, i) => i + 1), fourBallStakes.mainOverall, fourBallStakes.pressOverall, 2);
-        const totalPayout = front.payout + back.payout + overall.payout;
-        team1.forEach(id => win[id] = totalPayout);
-        team2.forEach(id => win[id] = -totalPayout);
-        return { winnings: win, front, back, overall };
+        
+        const totalWinnings = front.payout + back.payout + overall.payout;
+        team1Ids.forEach(id => roundWinnings[id] = totalWinnings);
+        team2Ids.forEach(id => roundWinnings[id] = -totalWinnings);
+        
+        return { winnings: roundWinnings, front, back, overall };
     }
   };
 
-  const calculateWheelMatch = (wheelTeam: string[], opponentTeam: string[], holes: number[], sIdx: number, matchIdx: number) => {
-    let main = 0;
+  /** Calculates a single 2-on-2 match (used for Sixes and The Wheel) */
+  const calculateWheelMatch = (wheelTeamIds: string[], opponentTeamIds: string[], holeList: number[], segmentIndex: number, matchIdx: number) => {
+    let matchScore = 0;
     let presses: Press[] = [];
-    let holeByHole: any[] = [];
-    (manualPresses[sIdx]?.[matchIdx] || []).forEach(h => {
+    let holeByHoleAudit: any[] = [];
+    
+    // Initialize with manual presses
+    (manualPresses[segmentIndex]?.[matchIdx] || []).forEach(h => {
         presses.push({ id: Date.now() + h, startHole: h, score: 0, holeByHole: [] });
     });
-    holes.forEach((h, i) => {
-      const w1 = getNetScore(wheelTeam[0], h), w2 = getNetScore(wheelTeam[1], h);
-      const o1 = getNetScore(opponentTeam[0], h), o2 = getNetScore(opponentTeam[1], h);
-      if (w1 === null || o1 === null) return;
-      const wb = Math.min(w1, w2 ?? 999), ob = Math.min(o1, o2 ?? 999);
-      
-      const w1G = scores[wheelTeam[0]]?.[h], w2G = scores[wheelTeam[1]]?.[h];
-      const o1G = scores[opponentTeam[0]]?.[h], o2G = scores[opponentTeam[1]]?.[h];
-      const wbG = w1 === wb ? w1G : w2G;
-      const obG = o1 === ob ? o1G : o2G;
 
-      const update = (curr: number) => (wb < ob ? curr + 1 : ob < wb ? curr - 1 : curr);
-      main = update(main);
+    holeList.forEach((holeNumber, indexInList) => {
+      const teamNet1 = getNetScore(wheelTeamIds[0], holeNumber);
+      const teamNet2 = getNetScore(wheelTeamIds[1], holeNumber);
+      const oppNet1 = getNetScore(opponentTeamIds[0], holeNumber);
+      const oppNet2 = getNetScore(opponentTeamIds[1], holeNumber);
       
-      presses = presses.map(p => {
-          if (h < p.startHole) return p;
-          const newScore = update(p.score);
-          const hbh = [...(p.holeByHole || []), { hole: h, t1Net: wb, t2Net: ob, t1Gross: wbG, t2Gross: obG, running: newScore }];
-          return { ...p, score: newScore, holeByHole: hbh };
+      if (teamNet1 === null || oppNet1 === null) return;
+      
+      const wheelBestBall = Math.min(teamNet1, teamNet2 ?? 999);
+      const opponentBestBall = Math.min(oppNet1, oppNet2 ?? 999);
+      
+      const teamGross1 = scores[wheelTeamIds[0]]?.[holeNumber], teamGross2 = scores[wheelTeamIds[1]]?.[holeNumber];
+      const oppGross1 = scores[opponentTeamIds[0]]?.[holeNumber], oppGross2 = scores[opponentTeamIds[1]]?.[holeNumber];
+      const wheelBestGross = teamNet1 === wheelBestBall ? teamGross1 : teamGross2;
+      const opponentBestGross = oppNet1 === opponentBestBall ? oppGross1 : oppGross2;
+
+      const updateScore = (current: number) => (wheelBestBall < opponentBestBall ? current + 1 : opponentBestBall < wheelBestBall ? current - 1 : current);
+      matchScore = updateScore(matchScore);
+      
+      presses = presses.map(press => {
+          if (holeNumber < press.startHole) return press;
+          const newPressScore = updateScore(press.score);
+          const pressAudit = [...(press.holeByHole || []), { hole: holeNumber, t1Net: wheelBestBall, t2Net: opponentBestBall, t1Gross: wheelBestGross, t2Gross: opponentBestGross, running: newPressScore }];
+          return { ...press, score: newPressScore, holeByHole: pressAudit };
       });
 
-      holeByHole.push({ 
-          hole: h, t1Net: wb, t2Net: ob, t1Gross: wbG, t2Gross: obG, 
-          running: main
+      holeByHoleAudit.push({ 
+          hole: holeNumber, t1Net: wheelBestBall, t2Net: opponentBestBall, t1Gross: wheelBestGross, t2Gross: opponentBestGross, 
+          running: matchScore
       });
 
-      const holesLeft = holes.length - (i + 1);
-      const lastPressScore = presses.length > 0 ? presses[presses.length-1].score : main;
-      const isClosed = Math.abs(lastPressScore) > holesLeft;
+      const holesRemaining = holeList.length - (indexInList + 1);
+      const lastPressScore = presses.length > 0 ? presses[presses.length - 1].score : matchScore;
+      const isClosedOut = Math.abs(lastPressScore) > holesRemaining;
       const isTwoDown = Math.abs(lastPressScore) >= 2;
-      const autoTriggered = settings.autoPressTrigger === 'closed-out' ? isClosed : isTwoDown;
-      if (settings.useAutoPress && autoTriggered && holesLeft > 0) {
-        if (settings.autoPressTrigger === '2-down' || isClosed) {
-            if (!presses.some(p => p.startHole === h + 1)) {
-                presses.push({ id: Date.now() + i, startHole: h + 1, score: 0, holeByHole: [] });
-            }
+      const autoTriggered = settings.autoPressTrigger === 'closed-out' ? isClosedOut : isTwoDown;
+
+      if (settings.useAutoPress && autoTriggered && holesRemaining > 0) {
+        if (!presses.some(p => p.startHole === holeNumber + 1)) {
+            presses.push({ id: Date.now() + indexInList, startHole: holeNumber + 1, score: 0, holeByHole: [] });
         }
       }
-      if (i === 5 && main === 0 && wb === ob && settings.useSecondBallTieBreaker) {
-        const ws = Math.max(w1, w2 ?? 999), os = Math.max(o1, o2 ?? 999);
-        if (ws < os) main++; else if (os < ws) main--;
-        // Update last entry with tiebreaker result
-        if (holeByHole.length > 0) {
-            holeByHole[holeByHole.length-1].running = main;
-            holeByHole[holeByHole.length-1].isTieBreaker = true;
+
+      // Tie-breaker on the final hole of the segment
+      if (indexInList === 5 && matchScore === 0 && wheelBestBall === opponentBestBall && settings.useSecondBallTieBreaker) {
+        const teamSecondBall = Math.max(teamNet1, teamNet2 ?? 999);
+        const opponentSecondBall = Math.max(oppNet1, oppNet2 ?? 999);
+        if (teamSecondBall < opponentSecondBall) matchScore++; 
+        else if (opponentSecondBall < teamSecondBall) matchScore--;
+        
+        if (holeByHoleAudit.length > 0) {
+            holeByHoleAudit[holeByHoleAudit.length-1].running = matchScore;
+            holeByHoleAudit[holeByHoleAudit.length-1].isTieBreaker = true;
         }
       }
     });
-    return { main, presses, holeByHole };
+    return { main: matchScore, presses, holeByHole: holeByHoleAudit };
   };
 
-  const calculateBaseballPoints = (hNum: number) => {
-    const hole = selectedCourse.holes.find(h => h.number === hNum);
+  /** 
+   * Calculates point distribution for a 3-player Baseball (9-point) hole.
+   */
+  const calculateBaseballPoints = (holeNumber: number) => {
+    const hole = selectedCourse.holes.find(h => h.number === holeNumber);
     if (!hole) return [0, 0, 0];
     
-    const pIds = activePlayers.map(p => p.id);
-    const grossScores = pIds.map(id => scores[id]?.[hNum]);
-    const netScores = pIds.map(id => getNetScore(id, hNum));
+    const activePlayerIds = activePlayers.map(player => player.id);
+    const playerGrossScores = activePlayerIds.map(id => scores[id]?.[holeNumber]);
+    const playerNetScores = activePlayerIds.map(id => getNetScore(id, holeNumber));
     
-    if (netScores.some(s => s === null)) return [0, 0, 0];
+    if (playerNetScores.some(score => score === null)) return [0, 0, 0];
     
-    // Birdie Rule
+    // Birdie Rule: One player wins all 9 points if they birdie and others bogey
     if (settings.useBaseballBirdieRule) {
-        const scoresToEvaluate = settings.baseballBirdieRuleType === 'gross' ? grossScores : netScores;
-        const winnerIdx = scoresToEvaluate.findIndex((s, i) => {
-            if (s! > (hole.par - 1)) return false; // Winner must be Birdie or better (based on toggle)
-            // Check if all OTHER players are Bogey or worse (based on NET score)
-            return netScores.every((ns, ni) => i === ni || ns! >= (hole.par + 1));
+        const scoresToEvaluate = settings.baseballBirdieRuleType === 'gross' ? playerGrossScores : playerNetScores;
+        const winnerIndex = scoresToEvaluate.findIndex((score, playerIdx) => {
+            if (score! > (hole.par - 1)) return false; // Winner must be Birdie or better (gross or net)
+            // Check if all OTHER players are Net Bogey or worse
+            return playerNetScores.every((netScore, otherIdx) => playerIdx === otherIdx || netScore! >= (hole.par + 1));
         });
-        if (winnerIdx !== -1) {
-            const points = [0, 0, 0];
-            points[winnerIdx] = 9;
-            return points;
+        if (winnerIndex !== -1) {
+            const pointsDistribution = [0, 0, 0];
+            pointsDistribution[winnerIndex] = 9;
+            return pointsDistribution;
         }
     }
 
-    const sorted = [...netScores].sort((a, b) => a! - b!);
-    const [s1, s2, s3] = sorted;
+    const sortedNetScores = [...playerNetScores].sort((a, b) => a! - b!);
+    const [bestNet, middleNet, worstNet] = sortedNetScores;
     
-    // Distribution Logic
-    if (s1 === s2 && s2 === s3) return [3, 3, 3];
-    if (s1 === s2) { // Tie for 1st
-        const points = netScores.map(s => s === s1 ? 4 : 1);
-        return points;
+    // Point Distribution Logic based on score tiers
+    if (bestNet === middleNet && middleNet === worstNet) return [3, 3, 3]; // Three-way tie
+    
+    if (bestNet === middleNet) { // Tie for 1st
+        return playerNetScores.map(score => score === bestNet ? 4 : 1);
     }
-    if (s2 === s3) { // Tie for 2nd
-        const points = netScores.map(s => s === s1 ? 5 : 2);
-        return points;
+    
+    if (middleNet === worstNet) { // Tie for 2nd
+        return playerNetScores.map(score => score === middleNet ? 2 : 5);
     }
-    // Distinct scores
-    const points = netScores.map(s => s === s1 ? 5 : s === s2 ? 3 : 1);
-    return points;
+    
+    // Distinct scores (5-3-1)
+    return playerNetScores.map(score => score === bestNet ? 5 : score === middleNet ? 3 : 1);
   };
 
+  /** 
+   * Aggregates points and calculates payouts for the Baseball game mode.
+   */
   const getBaseballTotals = () => {
-    const totals = [0, 0, 0];
-    const frontTotals = [0, 0, 0];
-    const backTotals = [0, 0, 0];
+    const totalPoints = [0, 0, 0];
+    const frontNinePoints = [0, 0, 0];
+    const backNinePoints = [0, 0, 0];
     
-    for (let h = 1; h <= 18; h++) {
-        let pts = calculateBaseballPoints(h);
-        if (h <= 9) {
-            pts.forEach((p, i) => frontTotals[i] += p);
+    for (let holeNum = 1; holeNum <= 18; holeNum++) {
+        let holePoints = calculateBaseballPoints(holeNum);
+        
+        if (holeNum <= 9) {
+            holePoints.forEach((pts, idx) => frontNinePoints[idx] += pts);
         }
         
-        if (h >= 10 && settings.useBaseballDoubleBackNine) {
-            pts = pts.map(p => p * 2);
+        // Apply double points setting for back 9 if enabled
+        if (holeNum >= 10 && settings.useBaseballDoubleBackNine) {
+            holePoints = holePoints.map(pts => pts * 2);
         }
 
-        if (h >= 10) {
-            pts.forEach((p, i) => backTotals[i] += p);
+        if (holeNum >= 10) {
+            holePoints.forEach((pts, idx) => backNinePoints[idx] += pts);
         }
-        pts.forEach((p, i) => totals[i] += p);
+        holePoints.forEach((pts, idx) => totalPoints[idx] += pts);
     }
     
-    const p1pts = totals[0], p2pts = totals[1], p3pts = totals[2];
-    const p1payout = (p1pts - p2pts) * baseballStake + (p1pts - p3pts) * baseballStake;
-    const p2payout = (p2pts - p1pts) * baseballStake + (p2pts - p3pts) * baseballStake;
-    const p3payout = (p3pts - p1pts) * baseballStake + (p3pts - p2pts) * baseballStake;
+    // Payouts are based on the point difference between every pair of players
+    const [pts1, pts2, pts3] = totalPoints;
+    const player1Payout = (pts1 - pts2) * baseballStake + (pts1 - pts3) * baseballStake;
+    const player2Payout = (pts2 - pts1) * baseballStake + (pts2 - pts3) * baseballStake;
+    const player3Payout = (pts3 - pts1) * baseballStake + (pts3 - pts2) * baseballStake;
     
     return { 
-        points: totals, 
-        frontPoints: frontTotals,
-        backPoints: backTotals,
-        payouts: [p1payout, p2payout, p3payout] 
+        points: totalPoints, 
+        frontPoints: frontNinePoints,
+        backPoints: backNinePoints,
+        payouts: [player1Payout, player2Payout, player3Payout] 
     };
   };
 
+  /** 
+   * Aggregates total winnings for all players across all active game formats and matches.
+   */
   const getPlayerTotals = () => {
     const totals: { [id: string]: number } = {};
-    activePlayers.forEach(p => totals[p.id] = 0);
+    activePlayers.forEach(player => totals[player.id] = 0);
     
     if (gameMode === 'four-ball') {
-        const res = calculateFourBallFull();
-        Object.keys(res.winnings).forEach(id => { if (totals[id] !== undefined) totals[id] += res.winnings[id]; });
-    } else if (gameMode === 'baseball') {
-        const res = getBaseballTotals();
-        // Only first 3 players get Baseball team winnings
-        players.slice(0, 3).forEach((p, i) => {
-            if (totals[p.id] !== undefined) totals[p.id] = res.payouts[i];
+        const results = calculateFourBallFull();
+        Object.keys(results.winnings).forEach(id => { 
+            if (totals[id] !== undefined) totals[id] += results.winnings[id]; 
         });
-    } else {
-        [0, 1, 2].forEach(i => { const res = calculateSegmentFull(i); Object.keys(res.winnings).forEach(id => { if (totals[id] !== undefined) totals[id] += res.winnings[id]; }); });
+    } else if (gameMode === 'baseball') {
+        const results = getBaseballTotals();
+        // Only first 3 players get Baseball team winnings
+        players.slice(0, 3).forEach((player, idx) => {
+            if (totals[player.id] !== undefined) totals[player.id] = results.payouts[idx];
+        });
+    } else if (gameMode === 'wheel' || gameMode === 'sixes') {
+        [0, 1, 2].forEach(segmentIdx => { 
+            const results = calculateSegmentFull(segmentIdx); 
+            Object.keys(results.winnings).forEach(id => { 
+                if (totals[id] !== undefined) totals[id] += results.winnings[id]; 
+            }); 
+        });
     }
     
-    independentMatches.forEach(m => { const res = calculateIndependentMatchResult(m); if (totals[m.p1Id] !== undefined) totals[m.p1Id] += res.payout; if (totals[m.p2Id] !== undefined) totals[m.p2Id] -= res.payout; });
+    // Add Independent Match results
+    independentMatches.forEach(match => { 
+        const results = calculateIndependentMatchResult(match); 
+        if (totals[match.player1Id] !== undefined) totals[match.player1Id] += results.payout; 
+        if (totals[match.player2Id] !== undefined) totals[match.player2Id] -= results.payout; 
+    });
+    
     return totals;
   };
 
-  const getTeamNamesByIds = (ids: string[], full: boolean = false) => ids.map(id => { const p = players.find(p => p.id === id); return p ? (full ? p.name : p.name.split(' ')[0]) : '?'; }).join(' & ');
-  const getPlayerWheelCount = (pId: string, cIdx: number) => segments.reduce((c, s, i) => i === cIdx ? c : c + (s.team1.includes(pId) ? 1 : 0), 0);
-  const isPairDuplicate = (p1: string, p2: string, cIdx: number) => {
-    if (!p1 || !p2) return false;
-    const key = [p1, p2].sort().join(',');
-    return segments.some((s, i) => i !== cIdx && s.team1.length === 2 && [...s.team1].sort().join(',') === key);
+  /** Returns formatted team names (e.g. "Brian & John") */
+  const getTeamNamesByIds = (playerIds: string[], isFullName: boolean = false) => playerIds.map(id => { 
+    const player = players.find(p => p.id === id); 
+    return player ? (isFullName ? player.name : player.name.split(' ')[0]) : '?'; 
+  }).join(' & ');
+
+  /** Returns how many times a player has been the "Wheel" in the current round */
+  const getPlayerWheelCount = (playerId: string, currentSegmentIndex: number) => 
+    segments.reduce((count, segment, index) => index === currentSegmentIndex ? count : count + (segment.team1.includes(playerId) ? 1 : 0), 0);
+
+  /** Checks if a pairing has already been used in another segment to ensure variety in rotations */
+  const isPairingDuplicate = (player1Id: string, player2Id: string, currentSegmentIndex: number) => {
+    if (!player1Id || !player2Id) return false;
+    const pairingKey = [player1Id, player2Id].sort().join(',');
+    return segments.some((segment, index) => 
+        index !== currentSegmentIndex && 
+        segment.team1.length === 2 && 
+        [...segment.team1].sort().join(',') === pairingKey
+    );
   };
 
-  const handleTeamSelection = (sIdx: number, p1: string, p2: string) => {
+  /** Handles team selection and automatically assigns remaining players to the opposing team */
+  const handleTeamSelection = (segmentIndex: number, player1Id: string, player2Id: string) => {
     setSegments(prev => {
         const next = [...prev];
-        next[sIdx] = { ...next[sIdx], team1: [p1, p2].filter(id => id) };
-        const others = activePlayers.filter(p => !next[sIdx].team1.includes(p.id)).map(p => p.id);
-        next[sIdx].team2 = others;
+        next[segmentIndex] = { ...next[segmentIndex], team1: [player1Id, player2Id].filter(id => id) };
+        const others = activePlayers.filter(p => !next[segmentIndex].team1.includes(p.id)).map(p => p.id);
+        next[segmentIndex].team2 = others;
         return next;
     });
   };
-  const getPlayerScoreTotal = (pId: string) => scores[pId] ? Object.values(scores[pId]).reduce((s, v) => s + (v || 0), 0) : 0;
-  const getPlayerNineTotal = (pId: string, holes: number[]) => scores[pId] ? holes.reduce((s, h) => s + (scores[pId][h] || 0), 0) : 0;
 
+  /** Returns the total gross score for a player across all 18 holes */
+  const getPlayerScoreTotal = (playerId: string) => 
+    scores[playerId] ? Object.values(scores[playerId]).reduce((sum, score) => sum + (score || 0), 0) : 0;
+
+  /** Returns the total gross score for a player for a specific set of holes (e.g. F9 or B9) */
+  const getPlayerHoleListTotal = (playerId: string, holeNumbers: number[]) => 
+    scores[playerId] ? holeNumbers.reduce((sum, holeNum) => sum + (scores[playerId][holeNum] || 0), 0) : 0;
+
+  /** Initializes manual relative stroke overrides with current calculated values */
   const handleManualStrokesToggle = () => {
-    const newValue = !settings.useManualStrokes;
-    if (newValue) {
-        // Clear string inputs to force UI to use the fresh numeric baseline
+    const isEnabling = !settings.useManualStrokes;
+    if (isEnabling) {
+        // Clear temporary string inputs
         setStrokeSummaryInputs({});
-        // Pre-load current values as starting point
-        setPlayers(prev => prev.map(p => ({
-            ...p,
+        // Set current calculated stroke values as the manual baseline
+        setPlayers(prev => prev.map(player => ({
+            ...player,
             manualRelativeStrokes: ((gameMode === 'sixes' || gameMode === 'wheel') && settings.strokeAllocation === 'divided')
-                ? getStrokesPerSix(p) 
-                : (p.courseHandicap - baselineCH)
+                ? getStrokesPerSixHoles(player) 
+                : (player.courseHandicap - baselineCH)
         })));
     }
-    setSettings(s => ({...s, useManualStrokes: newValue}));
+    setSettings(prev => ({ ...prev, useManualStrokes: isEnabling }));
   };
 
   const isLakeSelected = selectedCourse.id === 'olympic-lake';
