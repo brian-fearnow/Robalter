@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#101216" />
+<title>Heart Rate</title>
+<style>
+  :root {
+    --bg: #101216;
+    --panel: #191c22;
+    --line: #2a2e37;
+    --text: #f2f3f5;
+    --muted: #8d93a0;
+    --accent: #ff4d5e;
+    --good: #3ddc97;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    justify-content: center;
+  }
+  main {
+    width: 100%;
+    max-width: 420px;
+    min-height: 100%;
+    padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Gauge: the ring fills while the first reading is being collected. */
+  .gauge {
+    --progress: 0;
+    width: min(72vw, 260px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    padding: 6px;
+    background: conic-gradient(var(--accent) calc(var(--progress) * 360deg), var(--line) 0);
+    margin-top: 8px;
+  }
+  .gauge-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+  .heart {
+    width: 30px;
+    height: 30px;
+    fill: var(--accent);
+    opacity: 0.35;
+  }
+  .heart.beating {
+    opacity: 1;
+    animation: beat var(--beat, 1s) infinite ease-out;
+  }
+  @keyframes beat {
+    0% { transform: scale(1); }
+    12% { transform: scale(1.28); }
+    35% { transform: scale(1); }
+    100% { transform: scale(1); }
+  }
+  #bpm {
+    font-size: 84px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+  }
+  #bpm.dim { color: var(--muted); }
+  .unit { font-size: 14px; color: var(--muted); letter-spacing: 0.1em; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-radius: 14px;
+  }
+  /* The preview stays visible (iOS won't play an off-screen video) and helps
+     the user see whether their finger actually covers the lens. */
+  #video {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #000;
+    border: 2px solid var(--line);
+  }
+  #video.ok { border-color: var(--good); }
+  #status { font-size: 15px; line-height: 1.35; }
+  #quality { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  #wave {
+    width: 100%;
+    height: 90px;
+    background: var(--panel);
+    border-radius: 14px;
+  }
+
+  button {
+    width: 100%;
+    padding: 16px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-size: 17px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button.stop { background: var(--line); }
+  button:active { opacity: 0.85; }
+
+  .help {
+    width: 100%;
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .disclaimer {
+    margin: auto 0 0;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Heart Rate</h1>
+
+  <div class="gauge" id="gauge">
+    <div class="gauge-inner">
+      <svg class="heart" id="heart" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 21s-7.5-4.6-10-9.3C.3 8.4 1.9 4.5 5.6 4.1c2-.2 3.7.8 4.7 2.3L12 8.6l1.7-2.2c1-1.5 2.7-2.5 4.7-2.3 3.7.4 5.3 4.3 3.6 7.6C19.5 16.4 12 21 12 21z"/>
+      </svg>
+      <div id="bpm" class="dim" aria-live="polite">--</div>
+      <div class="unit">BPM</div>
+    </div>
+  </div>
+
+  <div class="status">
+    <video id="video" playsinline muted></video>
+    <div>
+      <div id="status">Tap Start, then cover the rear camera with your fingertip.</div>
+      <div id="quality"></div>
+    </div>
+  </div>
+
+  <canvas id="wave"></canvas>
+
+  <button id="toggle">Start</button>
+
+  <ul class="help">
+    <li>Rest your fingertip lightly over the rear camera lens <em>and</em> the flash. Don't press hard.</li>
+    <li>Hold still and stay quiet for about 15 seconds.</li>
+    <li>If the flash doesn't turn on (iPhone), hold your covered finger up to a bright light.</li>
+  </ul>
+
+  <p class="disclaimer">For curiosity and fitness only &mdash; not a medical device.</p>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // --- Tunables ---
+  const WINDOW_S = 12;      // seconds of signal analysed for each estimate
+  const MIN_S = 6;          // seconds of finger-on signal before the first reading
+  const MIN_BPM = 40;
+  const MAX_BPM = 200;
+  const BPM_STEP = 0.5;
+  const GOOD_QUALITY = 0.3; // fraction of in-band power sitting at the pulse frequency
+  const ESTIMATE_EVERY_MS = 500;
+
+  const $ = (id) => document.getElementById(id);
+  const video = $('video');
+  const bpmEl = $('bpm');
+  const statusEl = $('status');
+  const qualityEl = $('quality');
+  const gauge = $('gauge');
+  const heart = $('heart');
+  const toggle = $('toggle');
+  const wave = $('wave');
+  const waveCtx = wave.getContext('2d');
+
+  // Frames are averaged from a tiny canvas; we only need the mean colour.
+  const grab = document.createElement('canvas');
+  grab.width = grab.height = 32;
+  const grabCtx = grab.getContext('2d', { willReadFrequently: true });
+
+  let stream = null;
+  let running = false;
+  let hasTorch = false;
+  let wakeLock = null;
+  let samples = [];        // { t (seconds), r, g } while a finger is on the lens
+  let recentBpm = [];      // last few estimates, median-smoothed for display
+  let lastEstimateAt = 0;
+  let lastWave = null;     // detrended signal from the latest estimate, for drawing
+
+  // ---------- Camera ----------
+
+  async function start() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('This browser has no camera access. The page must be opened over HTTPS.');
+      return;
+    }
+    setStatus('Requesting camera…');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 320 },
+          height: { ideal: 240 },
+          frameRate: { ideal: 30 },
+        },
+      });
+    } catch (err) {
+      setStatus(err && err.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access for this site and try again.'
+        : 'Could not open the camera (' + (err && err.name || 'error') + ').');
+      return;
+    }
+
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+
+    // Turn on the flash where the browser allows it (Chrome on Android).
+    const track = stream.getVideoTracks()[0];
+    hasTorch = false;
+    try {
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.torch) {
+        await track.applyConstraints({ advanced: [{ torch: true }] });
+        hasTorch = true;
+      }
+    } catch (_) { /* no torch; ambient light still works */ }
+
+    try {
+      if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+    } catch (_) { /* optional */ }
+
+    running = true;
+    resetSignal();
+    toggle.textContent = 'Stop';
+    toggle.classList.add('stop');
+    scheduleFrame();
+  }
+
+  function stop(message) {
+    running = false;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    video.srcObject = null;
+    video.classList.remove('ok');
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    toggle.textContent = 'Start';
+    toggle.classList.remove('stop');
+    heart.classList.remove('beating');
+    gauge.style.setProperty('--progress', 0);
+    bpmEl.classList.add('dim');
+    qualityEl.textContent = '';
+    setStatus(message || (recentBpm.length
+      ? 'Stopped. Last reading shown above.'
+      : 'Tap Start, then cover the rear camera with your fingertip.'));
+  }
+
+  function scheduleFrame() {
+    if (!running) return;
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(onFrame);
+    else requestAnimationFrame(onFrame);
+  }
+
+  // ---------- Per-frame sampling ----------
+
+  function onFrame() {
+    if (!running) return;
+    scheduleFrame();
+    if (video.readyState < 2) return;
+
+    grabCtx.drawImage(video, 0, 0, grab.width, grab.height);
+    const px = grabCtx.getImageData(0, 0, grab.width, grab.height).data;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < px.length; i += 4) { r += px[i]; g += px[i + 1]; b += px[i + 2]; }
+    const n = px.length / 4;
+    r /= n; g /= n; b /= n;
+
+    // A lit fingertip over the lens is a uniformly red image.
+    const fingerOn = r > 50 && r > g * 1.5 && r > b * 1.5;
+    video.classList.toggle('ok', fingerOn);
+
+    if (!fingerOn) {
+      if (samples.length) resetSignal();
+      setStatus(hasTorch
+        ? 'Cover the rear camera and flash with your fingertip.'
+        : 'Cover the rear camera with your fingertip and face it toward a bright light.');
+      qualityEl.textContent = '';
+      return;
+    }
+
+    const now = performance.now();
+    const t = now / 1000;
+    samples.push({ t, r, g });
+    while (samples.length && samples[0].t < t - WINDOW_S) samples.shift();
+
+    const span = t - samples[0].t;
+    if (span < MIN_S) {
+      gauge.style.setProperty('--progress', (span / MIN_S).toFixed(3));
+      setStatus('Hold still… measuring');
+      return;
+    }
+    gauge.style.setProperty('--progress', 1);
+
+    if (now - lastEstimateAt >= ESTIMATE_EVERY_MS) {
+      lastEstimateAt = now;
+      updateEstimate();
+    }
+    drawWave();
+  }
+
+  function resetSignal() {
+    samples = [];
+    recentBpm = [];
+    lastWave = null;
+    lastEstimateAt = 0;
+    gauge.style.setProperty('--progress', 0);
+    heart.classList.remove('beating');
+    bpmEl.textContent = '--';
+    bpmEl.classList.add('dim');
+    drawWave();
+  }
+
+  // ---------- Signal processing ----------
+
+  // Remove slow drift (finger pressure, auto-exposure) by subtracting a
+  // ~1.2 s moving average, leaving only the pulse-rate fluctuations.
+  function detrend(ts, vs) {
+    const out = new Float64Array(vs.length);
+    const half = 0.6;
+    let lo = 0, hi = 0, sum = 0;
+    for (let i = 0; i < vs.length; i++) {
+      while (hi < vs.length && ts[hi] <= ts[i] + half) sum += vs[hi++];
+      while (ts[lo] < ts[i] - half) sum -= vs[lo++];
+      out[i] = vs[i] - sum / (hi - lo);
+    }
+    return out;
+  }
+
+  // Find the dominant frequency between MIN_BPM and MAX_BPM by evaluating the
+  // Fourier transform directly at each candidate rate. Using the real frame
+  // timestamps means uneven camera frame timing doesn't skew the result.
+  function estimate(ts, vs) {
+    const x = detrend(ts, vs);
+    const t0 = ts[0];
+    const T = ts[ts.length - 1] - t0;
+    const w = new Float64Array(x.length);
+    for (let i = 0; i < x.length; i++) {
+      w[i] = x[i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * (ts[i] - t0)) / T)); // Hann
+    }
+
+    const power = [];
+    let total = 0, best = 0;
+    for (let bpm = MIN_BPM; bpm <= MAX_BPM; bpm += BPM_STEP) {
+      const omega = (2 * Math.PI * bpm) / 60;
+      let re = 0, im = 0;
+      for (let i = 0; i < w.length; i++) {
+        const ph = omega * (ts[i] - t0);
+        re += w[i] * Math.cos(ph);
+        im += w[i] * Math.sin(ph);
+      }
+      const p = re * re + im * im;
+      power.push(p);
+      total += p;
+      if (p > power[best]) best = power.length - 1;
+    }
+
+    // Quality = share of in-band power inside the spectral peak. The peak's
+    // width shrinks as the analysis window grows, so scale it with T.
+    const halfWidth = Math.round(60 / T / BPM_STEP);
+    let peak = 0;
+    for (let i = Math.max(0, best - halfWidth); i <= Math.min(power.length - 1, best + halfWidth); i++) {
+      peak += power[i];
+    }
+    return { bpm: MIN_BPM + best * BPM_STEP, quality: total > 0 ? peak / total : 0, signal: x };
+  }
+
+  function updateEstimate() {
+    const ts = samples.map((s) => s.t);
+    // Red is usually the strongest channel, but it can saturate under the
+    // flash; green often still carries the pulse. Use whichever is cleaner.
+    let result = estimate(ts, samples.map((s) => s.r));
+    const meanG = samples.reduce((a, s) => a + s.g, 0) / samples.length;
+    if (meanG > 8) {
+      const viaGreen = estimate(ts, samples.map((s) => s.g));
+      if (viaGreen.quality > result.quality) result = viaGreen;
+    }
+    lastWave = { ts, signal: result.signal };
+
+    const pct = Math.round(Math.min(1, result.quality / 0.6) * 100);
+    qualityEl.textContent = 'Signal quality ' + pct + '%';
+
+    if (result.quality < GOOD_QUALITY) {
+      setStatus('Weak signal — hold still and keep the lens fully covered.');
+      bpmEl.classList.add('dim');
+      heart.classList.remove('beating');
+      return;
+    }
+
+    recentBpm.push(result.bpm);
+    if (recentBpm.length > 5) recentBpm.shift();
+    const sorted = recentBpm.slice().sort((a, b) => a - b);
+    const bpm = Math.round(sorted[Math.floor(sorted.length / 2)]);
+
+    bpmEl.textContent = bpm;
+    bpmEl.classList.remove('dim');
+    heart.style.setProperty('--beat', (60 / bpm).toFixed(3) + 's');
+    heart.classList.add('beating');
+    setStatus('Reading your pulse. Keep still for a steadier number.');
+  }
+
+  // ---------- Waveform ----------
+
+  function drawWave() {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = wave.clientWidth, ch = wave.clientHeight;
+    if (wave.width !== cw * dpr || wave.height !== ch * dpr) {
+      wave.width = cw * dpr;
+      wave.height = ch * dpr;
+    }
+    waveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    waveCtx.clearRect(0, 0, cw, ch);
+    if (!lastWave) return;
+
+    const { ts, signal } = lastWave;
+    const end = ts[ts.length - 1];
+    const startT = end - 6; // show the last 6 seconds
+    let first = 0;
+    while (ts[first] < startT) first++;
+    let amp = 1e-6;
+    for (let i = first; i < signal.length; i++) amp = Math.max(amp, Math.abs(signal[i]));
+
+    waveCtx.beginPath();
+    for (let i = first; i < signal.length; i++) {
+      const x = ((ts[i] - startT) / 6) * cw;
+      // More blood absorbs more light, so brightness dips on each beat;
+      // plot it inverted so beats point up.
+      const y = ch / 2 + (signal[i] / amp) * (ch / 2 - 10);
+      if (i === first) waveCtx.moveTo(x, y); else waveCtx.lineTo(x, y);
+    }
+    waveCtx.strokeStyle = '#ff4d5e';
+    waveCtx.lineWidth = 2;
+    waveCtx.lineJoin = 'round';
+    waveCtx.stroke();
+  }
+
+  // ---------- Wiring ----------
+
+  function setStatus(text) {
+    if (statusEl.textContent !== text) statusEl.textContent = text;
+  }
+
+  toggle.addEventListener('click', () => {
+    if (running) stop(); else start();
+  });
+
+  // The camera (and flash) shouldn't stay on in the background.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && running) stop();
+  });
+})();
+</script>
+</body>
+</html>
